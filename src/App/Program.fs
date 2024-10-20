@@ -24,7 +24,7 @@ module UI =
 
     let saveStartingPoint () = printf "\u001b[s"
 
-    let printInPlace (text: string) (glow: Process) =
+    let printInPlace (text: string) =
         async {
             //move cursor back to starting point
             printf "\u001b[u"
@@ -63,17 +63,6 @@ module UI =
 
         state
 
-let startGlowProcess () =
-    let startInfo = ProcessStartInfo()
-    startInfo.FileName <- "render.sh"
-    startInfo.RedirectStandardInput <- true
-    startInfo.UseShellExecute <- false
-
-    let _process = new Process()
-    _process.StartInfo <- startInfo
-    _process.Start() |> ignore
-    _process
-
 let withNewChat (msg: Message) (convo: Conversation) =
     match msg with
     | Start
@@ -87,9 +76,6 @@ let askJarvis prompt state : string =
     |> (fun stream ->
         async {
             let mutable res = ""
-            let glowProcess = startGlowProcess ()
-            let syncObj = obj ()
-
 
             //save cursor at starting point
             UI.saveStartingPoint ()
@@ -100,7 +86,7 @@ let askJarvis prompt state : string =
                     |> AsyncSeq.iterAsync (fun content ->
                         async {
                             res <- res + content
-                            do! UI.printInPlace res glowProcess
+                            do! UI.printInPlace res
                             do! Task.Delay(100) |> Async.AwaitTask
                         })
 
