@@ -11,3 +11,4 @@
 /Users/amirpanahi/Documents/projects/jarvis/src/Library/obj/Debug/net8.0/Library.xml
 /Users/amirpanahi/Documents/projects/jarvis/src/Library/obj/Debug/net8.0/Library.pdb
 /Users/amirpanahi/Documents/projects/jarvis/src/Library/obj/Debug/net8.0/ref/Library.dll
+/Users/amirpanahi/Documents/projects/jarvis/src/Library/obj/Debug/net8.0/Library.sourcelink.json
