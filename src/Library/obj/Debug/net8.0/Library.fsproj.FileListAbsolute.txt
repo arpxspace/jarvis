@@ -1,0 +1,13 @@
+/Users/amirpanahi/Documents/projects/jarvis/src/Library/bin/Debug/net8.0/Library.deps.json
+/Users/amirpanahi/Documents/projects/jarvis/src/Library/bin/Debug/net8.0/Library.dll
+/Users/amirpanahi/Documents/projects/jarvis/src/Library/bin/Debug/net8.0/Library.pdb
+/Users/amirpanahi/Documents/projects/jarvis/src/Library/bin/Debug/net8.0/Library.xml
+/Users/amirpanahi/Documents/projects/jarvis/src/Library/obj/Debug/net8.0/Library.fsproj.AssemblyReference.cache
+/Users/amirpanahi/Documents/projects/jarvis/src/Library/obj/Debug/net8.0/Library.AssemblyInfoInputs.cache
+/Users/amirpanahi/Documents/projects/jarvis/src/Library/obj/Debug/net8.0/Library.AssemblyInfo.fs
+/Users/amirpanahi/Documents/projects/jarvis/src/Library/obj/Debug/net8.0/Library.fsproj.CoreCompileInputs.cache
+/Users/amirpanahi/Documents/projects/jarvis/src/Library/obj/Debug/net8.0/Library.dll
+/Users/amirpanahi/Documents/projects/jarvis/src/Library/obj/Debug/net8.0/refint/Library.dll
+/Users/amirpanahi/Documents/projects/jarvis/src/Library/obj/Debug/net8.0/Library.xml
+/Users/amirpanahi/Documents/projects/jarvis/src/Library/obj/Debug/net8.0/Library.pdb
+/Users/amirpanahi/Documents/projects/jarvis/src/Library/obj/Debug/net8.0/ref/Library.dll

@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "dgSpecHash": "PMpXMX95vRo=",
+  "success": true,
+  "projectFilePath": "/Users/amirpanahi/Documents/projects/jarvis/src/App/App.fsproj",
+  "expectedPackageFiles": [
+    "/Users/amirpanahi/.nuget/packages/fsharp.control.asyncseq/3.2.1/fsharp.control.asyncseq.3.2.1.nupkg.sha512",
+    "/Users/amirpanahi/.nuget/packages/fsharp.core/8.0.400/fsharp.core.8.0.400.nupkg.sha512",
+    "/Users/amirpanahi/.nuget/packages/microsoft.bcl.asyncinterfaces/5.0.0/microsoft.bcl.asyncinterfaces.5.0.0.nupkg.sha512"
+  ],
+  "logs": []
+}
