@@ -32,3 +32,4 @@
 /Users/amirpanahi/Documents/projects/jarvis/src/App/obj/Debug/net8.0/ref/App.dll
 /Users/amirpanahi/Documents/projects/jarvis/src/App/bin/Debug/net8.0/FSharp.Control.AsyncSeq.dll
 /Users/amirpanahi/Documents/projects/jarvis/src/App/bin/Debug/net8.0/Microsoft.Bcl.AsyncInterfaces.dll
+/Users/amirpanahi/Documents/projects/jarvis/src/App/obj/Debug/net8.0/App.sourcelink.json
