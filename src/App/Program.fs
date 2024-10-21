@@ -1,5 +1,4 @@
-﻿open Library
-open System
+﻿open System
 open System.Threading
 open FSharp.Control
 open System.Net.Http
@@ -9,6 +8,8 @@ open Domain
 open System.Diagnostics
 open System.IO
 open System.Threading.Tasks
+
+let mutable lastLineCount = 0
 
 module UI =
     let spinner () =
@@ -23,6 +24,38 @@ module UI =
                 running <- false
 
     let saveStartingPoint () = printf "\u001b[s"
+
+    let printInPlaceSmooth (text: string) =
+        async {
+            let startInfo = ProcessStartInfo()
+            startInfo.FileName <- "glow"
+            startInfo.Arguments <- "-" // Read from stdin
+            startInfo.RedirectStandardInput <- true
+            startInfo.RedirectStandardOutput <- true
+            startInfo.UseShellExecute <- false
+            use _process = new Process()
+            _process.StartInfo <- startInfo
+            _process.Start() |> ignore
+            do! _process.StandardInput.WriteLineAsync(text) |> Async.AwaitTask
+            _process.StandardInput.Close()
+            let! output = _process.StandardOutput.ReadToEndAsync() |> Async.AwaitTask
+            do! _process.WaitForExitAsync() |> Async.AwaitTask
+
+            // Move cursor up by the number of lines we printed last time
+            if lastLineCount > 0 then
+                printf "\u001b[%dA" lastLineCount
+
+            // Split output into lines
+            let lines = output.Split('\n')
+            lastLineCount <- lines.Length
+
+            // Print each line, clearing to the end of line for each
+            for line in lines do
+                printf "%s\u001b[K\n" line
+
+            // Move cursor up to the end of our output
+            printf "\u001b[%dA" lines.Length
+        }
 
     let printInPlace (text: string) =
         async {
@@ -87,7 +120,7 @@ let askJarvis prompt state : string =
                         async {
                             res <- res + content
                             do! UI.printInPlace res
-                            do! Task.Delay(100) |> Async.AwaitTask
+                            do! Task.Delay(50) |> Async.AwaitTask
                         })
 
             with
