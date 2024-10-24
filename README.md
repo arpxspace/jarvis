@@ -17,4 +17,4 @@ The existing ollama tui doesnt make it easy to distinguish between code blocks a
 
 https://github.com/user-attachments/assets/75e45e8e-09d0-47c2-9322-d0cb85836161
 
-Need to work on the flickering issue.
+Need to work on the flickering issue. Unfortunately the markdown renderer `glow` does not support input streaming into the stdin. so had to find a hack which causes this flickering issue.
