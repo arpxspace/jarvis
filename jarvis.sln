@@ -5,8 +5,6 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{9E4D7873-E06C-42B7-BCC7-674ADDABF4A9}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Library", "src\Library\Library.fsproj", "{C32D478C-DBBE-4E16-91EE-AD4454DA136D}"
-EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "App", "src\App\App.fsproj", "{121DE579-8BA3-49F3-AD7A-C86C4EDE6514}"
 EndProject
 Global
