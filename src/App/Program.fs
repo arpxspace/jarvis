@@ -96,6 +96,24 @@ module UI =
 
         state
 
+let countWrappedLinesDetailed (text: string) =
+    let terminalWidth = Console.WindowWidth
+    
+    let folder (currentCol, totalLines) c =
+        match c with
+        | '\n' -> (0, totalLines + 1)
+        | _ when currentCol + 1 >= terminalWidth -> (1, totalLines + 1)
+        | _ -> (currentCol + 1, totalLines)
+    
+    text 
+    |> Seq.fold folder (0, 0)
+    |> snd
+
+let clearUpToLine n =
+    printf "\u001b[%dA" n
+    printf "\u001b[G"
+    printf "\u001b[0J" 
+
 let withNewChat (msg: Message) (convo: Conversation) =
     match msg with
     | Start
@@ -104,14 +122,15 @@ let withNewChat (msg: Message) (convo: Conversation) =
     | Jarvis msg -> [ yield! convo; Jarvis msg ]
 
 let askJarvis prompt state : string =
-    Ollama.createPayload "jarvis" state.Conversation
+    Ollama.createPayload "mixtral:8x7b" state.Conversation
+    // Ollama.createPayload "jarvis" state.Conversation
     |> Ollama.makeRequest
     |> (fun stream ->
         async {
             let mutable res = ""
 
-            //save cursor at starting point
-            UI.saveStartingPoint ()
+            // //save cursor at starting point
+            // UI.saveStartingPoint ()
 
             try
                 do!
@@ -119,13 +138,37 @@ let askJarvis prompt state : string =
                     |> AsyncSeq.iterAsync (fun content ->
                         async {
                             res <- res + content
-                            do! UI.printInPlace res
-                            do! Task.Delay(50) |> Async.AwaitTask
+                            printf $"{content}"
+                            // do! UI.printInPlace res
+                            // do! Task.Delay(50) |> Async.AwaitTask
                         })
 
             with
             | :? OperationCanceledException -> printfn "Streaming was canceled."
             | ex -> printfn "An error occurred during streaming: %s" ex.Message
+
+            // //move cursor back to starting point
+            // printf "\u001b[u"
+
+            // // //clear everything
+            // printf "\u001b[0J"
+
+            clearUpToLine (countWrappedLinesDetailed res)
+
+            let startInfo = ProcessStartInfo()
+            startInfo.FileName <- "glow"
+            startInfo.Arguments <- "-" // Read from stdin
+            startInfo.RedirectStandardInput <- true
+            startInfo.UseShellExecute <- false
+
+            use _process = new Process()
+            _process.StartInfo <- startInfo
+            _process.Start() |> ignore
+
+            do! _process.StandardInput.WriteLineAsync(res) |> Async.AwaitTask
+            _process.StandardInput.Close()
+
+            do! _process.WaitForExitAsync() |> Async.AwaitTask
 
             return res
         })
@@ -133,6 +176,8 @@ let askJarvis prompt state : string =
 
 let getStdInput () =
     //cover case of multi-line input
+    //read line
+    // if keystoke shift + enter
     ()
 
 let rec chat (state: State) =
