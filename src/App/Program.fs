@@ -87,50 +87,45 @@ module UI =
         let printBold (text: string) = printf "\u001b[1m%s\u001b[0m" text
 
         match state.Message with
-        | Start
-        | Jarvis _ ->
-            printBold ">>"
+        | You _ ->
+            printBold ">>>"
             printf " "
-        | You _ -> ()
+        | Jarvis _ -> ()
         | Quit -> ()
 
         state
 
-let countWrappedLinesDetailed (text: string) =
+let printBold (text: string) = printf "\u001b[1m%s\u001b[0m" text
+
+let countWrappedLines (text: string) =
     let terminalWidth = Console.WindowWidth
-    
+
     let folder (currentCol, totalLines) c =
         match c with
         | '\n' -> (0, totalLines + 1)
         | _ when currentCol + 1 >= terminalWidth -> (1, totalLines + 1)
         | _ -> (currentCol + 1, totalLines)
-    
-    text 
-    |> Seq.fold folder (0, 0)
-    |> snd
+
+    text |> Seq.fold folder (0, 0) |> snd
 
 let clearUpToLine n =
     printf "\u001b[%dA" n
     printf "\u001b[G"
-    printf "\u001b[0J" 
+    printf "\u001b[0J"
 
 let withNewChat (msg: Message) (convo: Conversation) =
     match msg with
-    | Start
     | Quit -> convo
     | You msg -> [ yield! convo; You msg ]
     | Jarvis msg -> [ yield! convo; Jarvis msg ]
 
 let askJarvis prompt state : string =
-    Ollama.createPayload "mixtral:8x7b" state.Conversation
-    // Ollama.createPayload "jarvis" state.Conversation
+    // Ollama.createPayload "mixtral:8x7b" state.Conversation
+    Ollama.createPayload "codellama" state.Conversation
     |> Ollama.makeRequest
     |> (fun stream ->
         async {
             let mutable res = ""
-
-            // //save cursor at starting point
-            // UI.saveStartingPoint ()
 
             try
                 do!
@@ -139,21 +134,13 @@ let askJarvis prompt state : string =
                         async {
                             res <- res + content
                             printf $"{content}"
-                            // do! UI.printInPlace res
-                            // do! Task.Delay(50) |> Async.AwaitTask
                         })
 
             with
             | :? OperationCanceledException -> printfn "Streaming was canceled."
             | ex -> printfn "An error occurred during streaming: %s" ex.Message
 
-            // //move cursor back to starting point
-            // printf "\u001b[u"
-
-            // // //clear everything
-            // printf "\u001b[0J"
-
-            clearUpToLine (countWrappedLinesDetailed res)
+            clearUpToLine (countWrappedLines res)
 
             let startInfo = ProcessStartInfo()
             startInfo.FileName <- "glow"
@@ -174,15 +161,11 @@ let askJarvis prompt state : string =
         })
     |> Async.RunSynchronously
 
-let getStdInput () =
-    //cover case of multi-line input
-    //read line
-    // if keystoke shift + enter
-    ()
+let withNewestPrompt state = List.last state.Conversation
 
 let rec chat (state: State) =
     match state.Message with
-    | Start ->
+    | You prompt ->
         state |> UI.display |> ignore //print initial UI
 
         let input = System.Console.ReadLine() //ask for user input -> msg
@@ -191,42 +174,26 @@ let rec chat (state: State) =
             match input with
             | "exit"
             | "quit" -> { state with Message = Quit }
-            | str when str.Length <> 0 -> { state with Message = You str }
-            | _ -> { state with Message = Start }
+            | str when str.Length <> 0 ->
+                { state with
+                    Message = You(prompt + "\n" + str) }
+            | "" ->
+                { state with
+                    Message = Jarvis ""
+                    Conversation = withNewChat (You prompt) state.Conversation } //end
+            | _ -> { state with Message = You prompt }
 
         chat newState
-    | You prompt ->
+    | Jarvis said ->
         state |> UI.display |> ignore //print UI with Jarvis placeholder
 
-        //update conversation with msg
-        let newState =
-            { state with
-                Conversation = withNewChat (You prompt) state.Conversation }
-
         //ask for jarvis input -> ollama rest api call
+        let response = state |> askJarvis withNewestPrompt
+
         chat
-            { newState with
-                Message = Jarvis(newState |> askJarvis prompt) }
-
-    | Jarvis said ->
-        state |> UI.display |> ignore //print initial UI
-
-        //update conversation with jarvis msg
-        let newState =
             { state with
-                Conversation = withNewChat (Jarvis said) state.Conversation }
-
-        //ask for user input -> msg
-        let input = System.Console.ReadLine() //ask for user input -> msg
-
-        let newNewState =
-            match input with
-            | "exit"
-            | "quit" -> { state with Message = Quit }
-            | str when str.Length <> 0 -> { newState with Message = You str }
-            | _ -> { newState with Message = Start }
-
-        chat newNewState
+                Conversation = withNewChat (Jarvis response) state.Conversation
+                Message = You "" }
     | Quit ->
         //exit the program
         ()
@@ -235,7 +202,7 @@ let rec chat (state: State) =
 let main args =
 
     let initially =
-        { Message = Start
+        { Message = You ""
           Conversation = List.Empty }
 
     chat initially
