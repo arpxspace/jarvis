@@ -85,9 +85,66 @@ let withNewChat (msg: Message) (convo: Conversation) =
     | You msg -> [ yield! convo; You msg ]
     | Jarvis msg -> [ yield! convo; Jarvis msg ]
 
-let askJarvis prompt state : string =
-    // Ollama.createPayload "mixtral:8x7b" state.Conversation
-    Ollama.createPayload "codellama" state.Conversation
+let renderMarkdown (res: string) = async {
+    let startInfo = ProcessStartInfo()
+    startInfo.FileName <- "glow"
+    startInfo.Arguments <- "-" // Read from stdin
+    startInfo.RedirectStandardInput <- true
+    startInfo.UseShellExecute <- false
+
+    use _process = new Process()
+    _process.StartInfo <- startInfo
+    _process.Start() |> ignore
+
+    do! _process.StandardInput.WriteLineAsync(res) |> Async.AwaitTask
+    _process.StandardInput.Close()
+
+    do! _process.WaitForExitAsync() |> Async.AwaitTask
+}
+
+let askClaude prompt state : string = 
+    Claude.createPayload "claude-3-5-sonnet-20241022" state.Conversation
+    |> Claude.makeRequest
+    |> (fun stream ->
+        async {
+            let mutable res = ""
+
+            try
+                do!
+                    stream
+                    |> AsyncSeq.iterAsync (fun content ->
+                        async {
+                            res <- res + content
+                            printf $"{content}"
+                        })
+
+            with
+            | :? OperationCanceledException -> printfn "Streaming was canceled."
+            | ex -> printfn "An error occurred during streaming: %s" ex.Message
+
+            clearUpToLine (countWrappedLines res)
+
+            let startInfo = ProcessStartInfo()
+            startInfo.FileName <- "glow"
+            startInfo.Arguments <- "-" // Read from stdin
+            startInfo.RedirectStandardInput <- true
+            startInfo.UseShellExecute <- false
+
+            use _process = new Process()
+            _process.StartInfo <- startInfo
+            _process.Start() |> ignore
+
+            do! _process.StandardInput.WriteLineAsync(res) |> Async.AwaitTask
+            _process.StandardInput.Close()
+
+            do! _process.WaitForExitAsync() |> Async.AwaitTask
+
+            return res
+        })
+    |> Async.RunSynchronously
+
+let askOllama prompt state : string =
+    Ollama.createPayload "jarvis" state.Conversation
     |> Ollama.makeRequest
     |> (fun stream ->
         async {
@@ -140,21 +197,20 @@ let rec chat (state: State) =
             match input with
             | "exit"
             | "quit" -> { state with Message = Quit }
-            | str when str.Length <> 0 ->
-                { state with
-                    Message = You(prompt + "\n" + str) }
             | "" ->
                 { state with
                     Message = Jarvis ""
                     Conversation = withNewChat (You prompt) state.Conversation } //end
-            | _ -> { state with Message = You prompt }
+            | str ->
+                { state with
+                    Message = You(prompt + "\n" + str) }
 
         chat newState
     | Jarvis said ->
         state |> UI.display |> ignore //print UI with Jarvis placeholder
 
         //ask for jarvis input -> ollama rest api call
-        let response = state |> askJarvis withNewestPrompt
+        let response = state |> askClaude withNewestPrompt
 
         chat
             { state with

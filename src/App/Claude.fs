@@ -1,4 +1,4 @@
-module Ollama
+module Claude
 
 open Domain
 open System
@@ -7,25 +7,39 @@ open System.Text
 open System.Text.Json
 open System.Threading
 open FSharp.Control
+open dotenv.net
 
-// Define the request payload types
+DotEnv.Load() |> ignore
+
+let envVars = DotEnv.Read()
+
+// ABSTRACT START
 type ChatMessage = { role: string; content: string }
 
 type ChatRequest =
     { model: string
       messages: ChatMessage[]
+      max_tokens: int
       stream: bool }
 
-type ChatResponse =
-    { model: string
-      message: ChatMessage
-      _done: bool }
+type ContentBlock = { ``type``: string; text: string }
 
-let jsonOptions =
-    JsonSerializerOptions(
-        PropertyNameCaseInsensitive = true
-    // Add other options if needed
-    )
+type ContentBlockStart =
+    { ``type``: string
+      index: int
+      content_block: ContentBlock }
+
+type ContentBlockDelta =
+    { ``type``: string
+      index: int
+      delta: ContentBlock }
+
+type ContentBlockStop = { ``type``: string; index: int }
+
+type MessageStop = { ``type``: string }
+//ABSTRACT END
+
+let jsonOptions = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
 
 let createPayload model (convo: Conversation) =
     let serializedConvo: ChatMessage[] =
@@ -41,6 +55,7 @@ let createPayload model (convo: Conversation) =
     let payload =
         { model = model
           messages = serializedConvo
+          max_tokens = 500
           stream = true }
 
     let json = JsonSerializer.Serialize(payload)
@@ -49,18 +64,23 @@ let createPayload model (convo: Conversation) =
 let makeRequest (payload: StringContent) =
     let client = new HttpClient()
 
-
     asyncSeq {
         // Construct the HttpRequestMessage
-        use request =
-            new HttpRequestMessage(HttpMethod.Post, "http://localhost:11434/api/chat", Content=payload)
 
+        // ABSTRACT START
+        use request = new HttpRequestMessage()
+        request.Method <- HttpMethod.Post
+        request.RequestUri <- Uri("https://api.anthropic.com/v1/messages")
+        request.Content <- payload
+        request.Headers.Add("x-api-key", envVars["CLAUDE"])
+        request.Headers.Add("anthropic-version", "2023-06-01")
+        payload.Headers.ContentType <- System.Net.Http.Headers.MediaTypeHeaderValue("application/json")
+        // ABSTRACT END
         try
             // Send the POST request asynchronously with cancellation support
             use! response =
                 client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead)
                 |> Async.AwaitTask
-
 
             // Ensure the response indicates success
             response.EnsureSuccessStatusCode() |> ignore
@@ -76,26 +96,38 @@ let makeRequest (payload: StringContent) =
                 let! line = reader.ReadLineAsync() |> Async.AwaitTask
 
                 if not (String.IsNullOrWhiteSpace(line)) then
+                    //ABSTRACT START
+                    let data = line.Substring 6
                     try
-                        // Deserialize the JSON line into ChatResponse
-                        let chatResponse = JsonSerializer.Deserialize<ChatResponse>(line, jsonOptions)
+                        let chatType = JsonSerializer.Deserialize<{| ``type``: string |}>(data, jsonOptions)
 
-                        if not chatResponse._done then
-                            // printf "%s" chatResponse.message.content
+                        match chatType.``type`` with
+                        | "content_block_start"
+                        | "content_block_delta" ->
+                            let response = JsonSerializer.Deserialize<ContentBlockDelta>(data, jsonOptions)
                             // Yield the content for processing
-                            yield chatResponse.message.content
-                        else
-                            // If _done is true, terminate the stream
+                            yield response.delta.text
+                        | "content_block_stop"
+                        | "message_stop" ->
                             yield! AsyncSeq.empty
+                        | _ -> ()
+
                     with
                     | :? JsonException as ex ->
                         // Handle JSON deserialization errors
-                        printfn "JSON Deserialization Error: %s" ex.Message
+                        // printfn "JSON Deserialization Error: %s" ex.Message
+                        ()
                     | ex ->
                         // Handle other exceptions
-                        printfn "Error: %s" ex.Message
+                        // printfn "Error: %s" ex.Message
+                        ()
 
+                    //ABSTRACT END
         with
-        | :? HttpRequestException as ex -> printfn "HTTP Request Error: %s" ex.Message
-        | ex -> printfn "Unexpected Error: %s" ex.Message
+        | :? HttpRequestException as ex ->
+            printfn "HTTP Request Error: %s" ex.Message
+            exit 0
+        | ex ->
+            printfn "Unexpected Error: %s" ex.Message
+            exit 0
     }
