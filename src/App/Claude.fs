@@ -7,11 +7,10 @@ open System.Text
 open System.Text.Json
 open System.Threading
 open FSharp.Control
-open dotenv.net
+open System.IO
+open System.Reflection
 
-DotEnv.Load() |> ignore
-
-let envVars = DotEnv.Read()
+let key = Environment.GetEnvironmentVariable("CLAUDE")
 
 type ContentBlock = { ``type``: string; text: string }
 
@@ -36,7 +35,7 @@ let httpRequest payload =
     request.Method <- HttpMethod.Post
     request.RequestUri <- Uri("https://api.anthropic.com/v1/messages")
     request.Content <- payload
-    request.Headers.Add("x-api-key", envVars["CLAUDE"])
+    request.Headers.Add("x-api-key", key)
     request.Headers.Add("anthropic-version", "2023-06-01")
     payload.Headers.ContentType <- System.Net.Http.Headers.MediaTypeHeaderValue("application/json")
     request
