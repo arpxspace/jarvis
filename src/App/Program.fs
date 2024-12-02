@@ -10,44 +10,6 @@ open System.IO
 open System.Threading.Tasks
 
 module UI =
-    let spinner () =
-        let mutable running = true
-
-        while running do
-            for c in "|/-\\" do
-                Console.Write(sprintf "\r%c" c)
-                Thread.Sleep(100)
-
-            if Console.KeyAvailable && Console.ReadKey(true).Key = ConsoleKey.Escape then
-                running <- false
-
-    let saveStartingPoint () = printf "\u001b[s"
-
-    let printInPlace (text: string) =
-        async {
-            //move cursor back to starting point
-            printf "\u001b[u"
-
-            // //clear everything
-            printf "\u001b[0J"
-
-            let startInfo = ProcessStartInfo()
-            startInfo.FileName <- "glow"
-            startInfo.Arguments <- "-" // Read from stdin
-            startInfo.RedirectStandardInput <- true
-            startInfo.UseShellExecute <- false
-
-            use _process = new Process()
-            _process.StartInfo <- startInfo
-            _process.Start() |> ignore
-
-            do! _process.StandardInput.WriteLineAsync(text) |> Async.AwaitTask
-            _process.StandardInput.Close()
-
-            do! _process.WaitForExitAsync() |> Async.AwaitTask
-
-        }
-
     let display (state: State) =
 
         let printBold (text: string) = printf "\u001b[1m%s\u001b[0m" text
@@ -56,8 +18,7 @@ module UI =
         | You _ ->
             printBold ">>>"
             printf " "
-        | Jarvis _ -> ()
-        | Quit -> ()
+        | _ -> ()
 
         state
 
@@ -85,74 +46,51 @@ let withNewChat (msg: Message) (convo: Conversation) =
     | You msg -> [ yield! convo; You msg ]
     | Jarvis msg -> [ yield! convo; Jarvis msg ]
 
-let renderMarkdown (res: string) = async {
-    let startInfo = ProcessStartInfo()
-    startInfo.FileName <- "glow"
-    startInfo.Arguments <- "-" // Read from stdin
-    startInfo.RedirectStandardInput <- true
-    startInfo.UseShellExecute <- false
+let renderMarkdown (res: string) =
+    async {
+        let startInfo = ProcessStartInfo()
+        startInfo.FileName <- "glow"
+        startInfo.Arguments <- "-" // Read from stdin
+        startInfo.RedirectStandardInput <- true
+        startInfo.UseShellExecute <- false
 
-    use _process = new Process()
-    _process.StartInfo <- startInfo
-    _process.Start() |> ignore
+        use _process = new Process()
+        _process.StartInfo <- startInfo
+        _process.Start() |> ignore
 
-    do! _process.StandardInput.WriteLineAsync(res) |> Async.AwaitTask
-    _process.StandardInput.Close()
+        do! _process.StandardInput.WriteLineAsync(res) |> Async.AwaitTask
+        _process.StandardInput.Close()
 
-    do! _process.WaitForExitAsync() |> Async.AwaitTask
-}
+        do! _process.WaitForExitAsync() |> Async.AwaitTask
+    }
 
-let askClaude prompt state : string = 
-    Claude.createPayload "claude-3-5-sonnet-20241022" state.Conversation
-    |> Claude.makeRequest
+let ask llm state : string =
+    let (payload, httpRequest) =
+        match llm with
+        | Ollama -> 
+            let model = "jarvis"
+            let payload = LLM.createPayload state.Conversation Ollama
+            let request = Ollama.httpRequest payload
+            (payload, request)
+        | Claude -> 
+            let model = "claude-3-5-sonnet-20241022"
+            let payload = LLM.createPayload state.Conversation Claude
+            let request = Claude.httpRequest payload
+            (payload, request)
+
+    let parseHandler = 
+        match llm with
+        | Ollama -> Ollama.parse
+        | Claude -> Claude.parse
+
+    LLM.makeRequest httpRequest parseHandler payload
     |> (fun stream ->
         async {
             let mutable res = ""
 
             try
                 do!
-                    stream
-                    |> AsyncSeq.iterAsync (fun content ->
-                        async {
-                            res <- res + content
-                            printf $"{content}"
-                        })
-
-            with
-            | :? OperationCanceledException -> printfn "Streaming was canceled."
-            | ex -> printfn "An error occurred during streaming: %s" ex.Message
-
-            clearUpToLine (countWrappedLines res)
-
-            let startInfo = ProcessStartInfo()
-            startInfo.FileName <- "glow"
-            startInfo.Arguments <- "-" // Read from stdin
-            startInfo.RedirectStandardInput <- true
-            startInfo.UseShellExecute <- false
-
-            use _process = new Process()
-            _process.StartInfo <- startInfo
-            _process.Start() |> ignore
-
-            do! _process.StandardInput.WriteLineAsync(res) |> Async.AwaitTask
-            _process.StandardInput.Close()
-
-            do! _process.WaitForExitAsync() |> Async.AwaitTask
-
-            return res
-        })
-    |> Async.RunSynchronously
-
-let askOllama prompt state : string =
-    Ollama.createPayload "jarvis" state.Conversation
-    |> Ollama.makeRequest
-    |> (fun stream ->
-        async {
-            let mutable res = ""
-
-            try
-                do!
-                    stream
+                  stream
                     |> AsyncSeq.iterAsync (fun content ->
                         async {
                             res <- res + content
@@ -186,12 +124,12 @@ let askOllama prompt state : string =
 
 let withNewestPrompt state = List.last state.Conversation
 
-let rec chat (state: State) =
+let rec chat (state: State) (llm: LLM) =
     match state.Message with
     | You prompt ->
-        state |> UI.display |> ignore //print initial UI
+        state |> UI.display |> ignore
 
-        let input = System.Console.ReadLine() //ask for user input -> msg
+        let input = System.Console.ReadLine()
 
         let newState =
             match input with
@@ -205,28 +143,37 @@ let rec chat (state: State) =
                 { state with
                     Message = You(prompt + "\n" + str) }
 
-        chat newState
+        chat newState llm
     | Jarvis said ->
-        state |> UI.display |> ignore //print UI with Jarvis placeholder
+        state |> UI.display |> ignore
 
         //ask for jarvis input -> ollama rest api call
-        let response = state |> askClaude withNewestPrompt
+        let response =
+            state
+            |> ask llm
 
         chat
             { state with
                 Conversation = withNewChat (Jarvis response) state.Conversation
                 Message = You "" }
-    | Quit ->
-        //exit the program
-        ()
+            llm
+    | Quit -> ()
 
 [<EntryPoint>]
-let main args =
+let main argv =
+    match argv with
+    | [| llm_param |] ->
+        let llm =
+            match llm_param with
+            | "claude" -> Claude
+            | "ollama" -> Ollama
+            | _ -> Ollama
 
-    let initially =
-        { Message = You ""
-          Conversation = List.Empty }
+        let initially =
+            { Message = You ""
+              Conversation = List.Empty }
 
-    chat initially
+        chat initially llm
+    | _ -> printfn "Usage: jarvis <llm>"
 
-    0 // return an integer exit code
+    0
