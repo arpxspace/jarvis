@@ -135,7 +135,7 @@ let rec chat (state: State) (llm: LLM) =
             match input with
             | "exit"
             | "quit" -> { state with Message = Quit }
-            | "" ->
+            | "/end" ->
                 { state with
                     Message = Jarvis ""
                     Conversation = withNewChat (You prompt) state.Conversation } //end
