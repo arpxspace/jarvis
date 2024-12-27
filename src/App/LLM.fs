@@ -33,7 +33,7 @@ let createPayload (convo: Conversation) (init: LLM) =
                 model = "claude-3-5-sonnet-20241022"
                 messages = serializedConvo
                 stream = true
-                max_tokens = 500
+                max_tokens = 1024
             }
             JsonSerializer.Serialize(p)
             
