@@ -20,6 +20,7 @@ type OllamaPayload = {
 type ClaudePayload = {
     model: string
     messages: ChatMessage[]
+    system: string
     stream: bool
     max_tokens: int
 }
