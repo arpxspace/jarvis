@@ -8,6 +8,8 @@ open Domain
 open System.Diagnostics
 open System.IO
 open System.Threading.Tasks
+open Spectre
+open Spectre.Console
 
 module UI =
     let display (state: State) =
@@ -94,7 +96,7 @@ let ask llm state : string =
                     |> AsyncSeq.iterAsync (fun content ->
                         async {
                             res <- res + content
-                            printf $"{content}"
+                            AnsiConsole.Markup $"{content}"
                         })
 
             with
