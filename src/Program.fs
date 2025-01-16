@@ -88,38 +88,27 @@ let ask llm state : string =
     LLM.makeRequest httpRequest parseHandler payload
     |> (fun stream ->
         async {
-            let mutable res = ""
-
-            try
-                do!
-                  stream
-                    |> AsyncSeq.iterAsync (fun content ->
-                        async {
-                            res <- res + content
-                            AnsiConsole.Markup $"{content}"
-                        })
-
-            with
-            | :? OperationCanceledException -> printfn "Streaming was canceled."
-            | ex -> printfn "An error occurred during streaming: %s" ex.Message
-
-            clearUpToLine (countWrappedLines res)
-
             let startInfo = ProcessStartInfo()
-            startInfo.FileName <- "glow"
-            startInfo.Arguments <- "-" // Read from stdin
-            startInfo.RedirectStandardInput <- true
+            startInfo.FileName <- "../prettified-output/main"
             startInfo.UseShellExecute <- false
+            startInfo.RedirectStandardInput <- true
 
-            use _process = new Process()
-            _process.StartInfo <- startInfo
-            _process.Start() |> ignore
+            use proc = Process.Start(startInfo)
+            use stdin = proc.StandardInput
 
-            do! _process.StandardInput.WriteLineAsync(res) |> Async.AwaitTask
-            _process.StandardInput.Close()
+            let! res =
+                stream
+                |> AsyncSeq.foldAsync (fun acc content ->
+                    async {
+                        do! stdin.WriteAsync(content) |> Async.AwaitTask
+                        do! stdin.FlushAsync() |> Async.AwaitTask
+                        return acc + content
+                    }) ""
 
-            do! _process.WaitForExitAsync() |> Async.AwaitTask
+            stdin.Close()
+            proc.WaitForExit()
 
+            printfn ""
             return res
         })
     |> Async.RunSynchronously
