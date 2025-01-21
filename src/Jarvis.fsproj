@@ -7,9 +7,10 @@
 
   <ItemGroup>
     <Compile Include="Domain.fs" />
-    <Compile Include="LLM.fs" />
-    <Compile Include="Ollama.fs" />
+    <Compile Include="Tools.fs" />
     <Compile Include="Claude.fs" />
+    <Compile Include="Ollama.fs" />
+    <Compile Include="LLM.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

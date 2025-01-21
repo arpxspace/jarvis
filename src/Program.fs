@@ -24,47 +24,13 @@ module UI =
 
         state
 
-let printBold (text: string) = printf "\u001b[1m%s\u001b[0m" text
-
-let countWrappedLines (text: string) =
-    let terminalWidth = Console.WindowWidth
-
-    let folder (currentCol, totalLines) c =
-        match c with
-        | '\n' -> (0, totalLines + 1)
-        | _ when currentCol + 1 >= terminalWidth -> (1, totalLines + 1)
-        | _ -> (currentCol + 1, totalLines)
-
-    text |> Seq.fold folder (0, 0) |> snd
-
-let clearUpToLine n =
-    printf "\u001b[%dA" n
-    printf "\u001b[G"
-    printf "\u001b[0J"
+let await f = f |> Async.RunSynchronously
 
 let withNewChat (msg: Message) (convo: Conversation) =
     match msg with
     | Quit -> convo
     | You msg -> [ yield! convo; You msg ]
     | Jarvis msg -> [ yield! convo; Jarvis msg ]
-
-let renderMarkdown (res: string) =
-    async {
-        let startInfo = ProcessStartInfo()
-        startInfo.FileName <- "glow"
-        startInfo.Arguments <- "-" // Read from stdin
-        startInfo.RedirectStandardInput <- true
-        startInfo.UseShellExecute <- false
-
-        use _process = new Process()
-        _process.StartInfo <- startInfo
-        _process.Start() |> ignore
-
-        do! _process.StandardInput.WriteLineAsync(res) |> Async.AwaitTask
-        _process.StandardInput.Close()
-
-        do! _process.WaitForExitAsync() |> Async.AwaitTask
-    }
 
 let ask llm state : string =
     let (payload, httpRequest) =
@@ -82,14 +48,16 @@ let ask llm state : string =
 
     let parseHandler = 
         match llm with
-        | Ollama -> Ollama.parse
-        | Claude -> Claude.parse
+        | Ollama -> Ollama.parse 
+        | Claude -> Claude.parse 
 
-    LLM.makeRequest httpRequest parseHandler payload
+    let jsonOptions = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
+
+    LLM.makeRequest httpRequest parseHandler {Tool = None; Text = ""} payload
     |> (fun stream ->
         async {
             let startInfo = ProcessStartInfo()
-            startInfo.FileName <- "../prettified-output/main"
+            startInfo.FileName <- "/Users/amirpanahi/Documents/projects/jarvis/prettified-output/main"
             startInfo.UseShellExecute <- false
             startInfo.RedirectStandardInput <- true
 
@@ -98,20 +66,41 @@ let ask llm state : string =
 
             let! res =
                 stream
-                |> AsyncSeq.foldAsync (fun acc content ->
+                |> AsyncSeq.foldAsync<Context, Event>(fun acc content ->
                     async {
-                        do! stdin.WriteAsync(content) |> Async.AwaitTask
-                        do! stdin.FlushAsync() |> Async.AwaitTask
-                        return acc + content
-                    }) ""
+                        // printfn "%A" acc
+                        // printfn ""
+
+                        match content with
+                        | ReceivedText text -> 
+                            do! stdin.WriteAsync(text) |> Async.AwaitTask
+                            do! stdin.FlushAsync() |> Async.AwaitTask
+                            return {acc with Text = acc.Text + text}
+                        | RequiresTool tool -> 
+                            return {acc with Tool = Some ({Name = tool; Schema = ""})}
+                        | ConstructingToolSchema partial ->
+                            match acc.Tool with
+                            | Some x ->
+                                return { acc with Tool = Some { x with Schema = x.Schema + partial } }
+                            | None ->
+                                return acc
+                        | BlockFinished ->
+                            match acc.Tool with
+                            | Some tool when tool.Name = "write_note" ->
+                                let input = JsonSerializer.Deserialize<Tools.WriteNoteSchema>(tool.Schema, jsonOptions)
+                                Tools.writeNote input.note input.filename
+                                return { acc with Tool = None }
+                            | _ -> return acc
+                    })
+                    {Text = ""; Tool = None}
 
             stdin.Close()
             proc.WaitForExit()
 
             printfn ""
-            return res
+            return res.Text
         })
-    |> Async.RunSynchronously
+    |> await
 
 let withNewestPrompt state = List.last state.Conversation
 

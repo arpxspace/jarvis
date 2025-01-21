@@ -1,29 +1,34 @@
 module Domain
 open FSharp.Control
+open System
+open System.Text.Json
+open System.Text.Json.Serialization
 
 type ChatMessage = { role: string; content: string }
 
+type ToolData = {
+    Name: string
+    Schema: string //JSON stringified
+}
+
+type Event =
+    | ReceivedText of string
+    | RequiresTool of name: string
+    | ConstructingToolSchema of partial_json: string
+    | BlockFinished
+
+type Context = {
+    Text: string
+    Tool: ToolData option
+}
+
 type ParseResponse = 
-    | Data of string
+    | Data of Event
     | Ended of AsyncSeq<string>
 
 type LLM =
     | Claude
     | Ollama
-
-type OllamaPayload = {
-    model: string
-    messages: ChatMessage[]
-    stream: bool
-}
-
-type ClaudePayload = {
-    model: string
-    messages: ChatMessage[]
-    system: string
-    stream: bool
-    max_tokens: int
-}
 
 type Message =
     | You of msg: string
@@ -35,3 +40,5 @@ type Conversation = Message list
 type State =
     { Message: Message
       Conversation: Conversation }
+
+
