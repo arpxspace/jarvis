@@ -46,7 +46,7 @@ module Tool =
                 Map.ofList
                     [ "note",
                       { ``type`` = "string"
-                        description = "The content of the note to be written which contains information ONLY from the current discussion. NO new information that wasnt explicitly mentioned in the existing conversation should be present in this content" }
+                        description = "The content of the note to be written which contains information ONLY from the current discussion. NO new information that wasnt explicitly mentioned in the existing conversation should be present in this content. Include any code snippets if necessary" }
                       "filename",
                       { ``type`` = "string"
                         description = "A unix friendly filename for the note" } ] }

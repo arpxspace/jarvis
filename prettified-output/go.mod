@@ -3,13 +3,16 @@ module main
 go 1.23.4
 
 require (
+	github.com/charmbracelet/bubbles v0.20.0
+	github.com/charmbracelet/bubbletea v1.2.4
+	github.com/charmbracelet/glamour v0.8.0
+	github.com/charmbracelet/lipgloss v1.0.0
+)
+
+require (
 	github.com/alecthomas/chroma/v2 v2.14.0 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
-	github.com/charmbracelet/bubbles v0.20.0 // indirect
-	github.com/charmbracelet/bubbletea v1.2.4 // indirect
-	github.com/charmbracelet/glamour v0.8.0 // indirect
-	github.com/charmbracelet/lipgloss v1.0.0 // indirect
 	github.com/charmbracelet/x/ansi v0.4.5 // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
 	github.com/dlclark/regexp2 v1.11.0 // indirect

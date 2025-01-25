@@ -14,7 +14,7 @@ open Spectre.Console
 module UI =
     let display (state: State) =
 
-        let printBold (text: string) = printf "\u001b[1m%s\u001b[0m" text
+        let printBold (text: string) = AnsiConsole.Markup($"[bold]{text}[/]")
 
         match state.Message with
         | You _ ->
@@ -35,25 +35,25 @@ let withNewChat (msg: Message) (convo: Conversation) =
 let ask llm state : string =
     let (payload, httpRequest) =
         match llm with
-        | Ollama -> 
+        | Ollama ->
             let model = "jarvis"
             let payload = LLM.createPayload state.Conversation Ollama
             let request = Ollama.httpRequest payload
             (payload, request)
-        | Claude -> 
+        | Claude ->
             let model = "claude-3-5-sonnet-20241022"
             let payload = LLM.createPayload state.Conversation Claude
             let request = Claude.httpRequest payload
             (payload, request)
 
-    let parseHandler = 
+    let parseHandler =
         match llm with
-        | Ollama -> Ollama.parse 
-        | Claude -> Claude.parse 
+        | Ollama -> Ollama.parse
+        | Claude -> Claude.parse
 
     let jsonOptions = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
 
-    LLM.makeRequest httpRequest parseHandler {Tool = None; Text = ""} payload
+    LLM.makeRequest httpRequest parseHandler { Tool = None; Text = "" } payload
     |> (fun stream ->
         async {
             let startInfo = ProcessStartInfo()
@@ -66,38 +66,60 @@ let ask llm state : string =
 
             let! res =
                 stream
-                |> AsyncSeq.foldAsync<Context, Event>(fun acc content ->
-                    async {
-                        // printfn "%A" acc
-                        // printfn ""
+                |> AsyncSeq.foldAsync<Context, Event>
+                    (fun acc content ->
+                        async {
+                            // printfn "%A" acc
+                            // printfn ""
 
-                        match content with
-                        | ReceivedText text -> 
-                            do! stdin.WriteAsync(text) |> Async.AwaitTask
-                            do! stdin.FlushAsync() |> Async.AwaitTask
-                            return {acc with Text = acc.Text + text}
-                        | RequiresTool tool -> 
-                            return {acc with Tool = Some ({Name = tool; Schema = ""})}
-                        | ConstructingToolSchema partial ->
-                            match acc.Tool with
-                            | Some x ->
-                                return { acc with Tool = Some { x with Schema = x.Schema + partial } }
-                            | None ->
-                                return acc
-                        | BlockFinished ->
-                            match acc.Tool with
-                            | Some tool when tool.Name = "write_note" ->
-                                let input = JsonSerializer.Deserialize<Tools.WriteNoteSchema>(tool.Schema, jsonOptions)
-                                Tools.writeNote input.note input.filename
-                                return { acc with Tool = None }
-                            | _ -> return acc
-                    })
-                    {Text = ""; Tool = None}
+                            match content with
+                            | ReceivedText text ->
+                                do! stdin.WriteAsync (content.Serialize None (Some text)) |> Async.AwaitTask
+                                do! stdin.FlushAsync() |> Async.AwaitTask
+                                return { acc with Text = acc.Text + text }
+                            | RequiresTool tool ->
+                                do! stdin.WriteAsync (content.Serialize (Some tool) None) |> Async.AwaitTask
+                                do! stdin.FlushAsync() |> Async.AwaitTask
+                                return
+                                    { acc with
+                                        Tool = Some({ Name = tool; Schema = "" }) }
+                            | ConstructingToolSchema partial ->
+                                match acc.Tool with
+                                | Some tool ->
+                                    do! stdin.WriteAsync (content.Serialize (Some tool.Name) None) |> Async.AwaitTask
+                                    do! stdin.FlushAsync() |> Async.AwaitTask
+                                    return
+                                        { acc with
+                                            Tool = Some { tool with Schema = tool.Schema + partial } }
+                                | None -> return acc
+                            | BlockFinished ->
+                                match acc.Tool with
+                                | Some tool when tool.Name = "write_note" ->
+                                    let input =
+                                        JsonSerializer.Deserialize<Tools.WriteNoteSchema>(
+                                            tool.Schema,
+                                            jsonOptions
+                                        )
+
+                                    let filepath = $"/Users/amirpanahi/notes/literature/{input.filename}"
+                                    File.AppendAllText(filepath, input.note)
+                                    let text = $"\n\n**Written to: {filepath}**"
+                                    do! stdin.WriteAsync (content.Serialize (Some tool.Name) (Some text)) |> Async.AwaitTask
+                                    do! stdin.WriteAsync(text) |> Async.AwaitTask
+                                    do! stdin.FlushAsync() |> Async.AwaitTask
+                                    AnsiConsole.MarkupLine text
+
+                                    return
+                                        { acc with
+                                            Tool = None
+                                            Text = acc.Text + text }
+                                | _ -> return acc
+                        })
+                    { Text = ""; Tool = None }
 
             stdin.Close()
             proc.WaitForExit()
-
-            printfn ""
+            // printfn ""
             return res.Text
         })
     |> await
@@ -128,9 +150,7 @@ let rec chat (state: State) (llm: LLM) =
         state |> UI.display |> ignore
 
         //ask for jarvis input -> ollama rest api call
-        let response =
-            state
-            |> ask llm
+        let response = state |> ask llm
 
         chat
             { state with

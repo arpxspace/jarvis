@@ -13,6 +13,8 @@ type WriteNoteSchema = {
 let writeNote note fileName =
     let filepath = $"/Users/amirpanahi/notes/literature/{fileName}"
     File.AppendAllText(filepath, note)
-    AnsiConsole.MarkupLine($"[green]Written to: {filepath} [/]")
+    AnsiConsole.WriteLine()
+    AnsiConsole.MarkupLine($"  [green]COMMAND: Written to: {filepath} [/]")
+    AnsiConsole.WriteLine()
 
 

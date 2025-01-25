@@ -7,13 +7,18 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// StreamContent represents new content being streamed in
+type StreamContent string
 
 // MarkdownRenderer manages the streaming rendering of markdown content
 type MarkdownRenderer struct {
@@ -26,8 +31,12 @@ type MarkdownRenderer struct {
 	height       int
 	width        int
 	contentMutex *sync.Mutex
+
+	// New: spinner
+	spinner spinner.Model
 }
 
+// NewMarkdownRenderer sets up our renderer and spinner
 func NewMarkdownRenderer() (*MarkdownRenderer, error) {
 	gr, err := glamour.NewTermRenderer(
 		glamour.WithEnvironmentConfig(),
@@ -40,16 +49,25 @@ func NewMarkdownRenderer() (*MarkdownRenderer, error) {
 	vp := viewport.New(0, 0)
 	vp.GotoBottom()
 
+	s := spinner.New()
+	s.Spinner = spinner.Spinner{
+		Frames: []string{"✶", "✸", "✹", "✺", "✹", "✷"},
+		FPS:    35 * time.Millisecond,
+	}
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+
 	return &MarkdownRenderer{
 		renderer:     gr,
 		viewport:     vp,
 		lipgloss:     lipgloss.NewRenderer(os.Stdout),
 		contentMutex: &sync.Mutex{},
+		spinner:      s,
 	}, nil
 }
 
 func (r *MarkdownRenderer) Init() tea.Cmd {
-	return nil
+	// Start the spinner
+	return r.spinner.Tick
 }
 
 // Update handles tea.Msg events and updates the renderer state
@@ -68,21 +86,35 @@ func (r *MarkdownRenderer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r, r.updateViewportCmd
 	}
 
+	// Update the viewport if needed
 	if r.viewportNeeded() {
-		var cmd tea.Cmd
-		r.viewport, cmd = r.viewport.Update(msg)
-		cmds = append(cmds, cmd)
+		var vpCmd tea.Cmd
+		r.viewport, vpCmd = r.viewport.Update(msg)
+		cmds = append(cmds, vpCmd)
 	}
+
+	// Update spinner
+	var spinCmd tea.Cmd
+	r.spinner, spinCmd = r.spinner.Update(msg)
+	cmds = append(cmds, spinCmd)
 
 	return r, tea.Batch(cmds...)
 }
 
 // View renders the current state
 func (r *MarkdownRenderer) View() string {
+	// Render either the viewport (if we need scrolling) plus spinner
+	// or the rendered text plus spinner.
+	var spinnerView = fmt.Sprintf(
+		"%s %s",
+		r.spinner.View(),
+		lipgloss.NewStyle().Italic(true).Render("Loading..."),
+	)
+
 	if r.viewportNeeded() {
-		return r.viewport.View()
+		return r.viewport.View() + "\n" + spinnerView
 	}
-	return r.rendered
+	return r.rendered + "\n" + spinnerView
 }
 
 func (r *MarkdownRenderer) appendContent(s string) {
@@ -133,9 +165,6 @@ func (r *MarkdownRenderer) updateViewportCmd() tea.Msg {
 func (r *MarkdownRenderer) viewportNeeded() bool {
 	return r.height > r.viewport.Height
 }
-
-// StreamContent represents new content being streamed in
-type StreamContent string
 
 // RunRenderer starts the Bubble Tea program
 func RunRenderer(input io.Reader) error {
