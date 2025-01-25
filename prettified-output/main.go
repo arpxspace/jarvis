@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -17,10 +17,17 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// StreamContent represents new content being streamed in
-type StreamContent string
+type InputData struct {
+	Text  string `json:"Text"`
+	Tool  string `json:"Tool"`
+	Event string `json:"Event"`
+}
 
-// MarkdownRenderer manages the streaming rendering of markdown content
+// Your streaming text
+type StreamContent string
+type EventMsg string
+type ToolMsg string
+
 type MarkdownRenderer struct {
 	content      strings.Builder
 	viewport     viewport.Model
@@ -32,11 +39,15 @@ type MarkdownRenderer struct {
 	width        int
 	contentMutex *sync.Mutex
 
-	// New: spinner
-	spinner spinner.Model
+	// Spinner stuff
+	spinner      spinner.Model
+	spinnerLabel string
+
+	// Keep track of the current tool and event
+	toolName   string
+	eventLabel string
 }
 
-// NewMarkdownRenderer sets up our renderer and spinner
 func NewMarkdownRenderer() (*MarkdownRenderer, error) {
 	gr, err := glamour.NewTermRenderer(
 		glamour.WithEnvironmentConfig(),
@@ -62,28 +73,47 @@ func NewMarkdownRenderer() (*MarkdownRenderer, error) {
 		lipgloss:     lipgloss.NewRenderer(os.Stdout),
 		contentMutex: &sync.Mutex{},
 		spinner:      s,
+		// Default text for spinner
+		spinnerLabel: "Processing...",
 	}, nil
 }
 
 func (r *MarkdownRenderer) Init() tea.Cmd {
-	// Start the spinner
 	return r.spinner.Tick
 }
 
-// Update handles tea.Msg events and updates the renderer state
 func (r *MarkdownRenderer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
-	switch msg := msg.(type) {
+	switch m := msg.(type) {
 	case tea.WindowSizeMsg:
-		r.width, r.height = msg.Width, msg.Height
-		r.viewport.Width = msg.Width
-		r.viewport.Height = msg.Height
-		return r, nil
+		r.width, r.height = m.Width, m.Height
+		r.viewport.Width = m.Width
+		r.viewport.Height = m.Height
 
 	case StreamContent:
-		r.appendContent(string(msg))
+		r.appendContent(string(m))
+		// Update the viewport after appending content
 		return r, r.updateViewportCmd
+
+	case ToolMsg:
+		// Store the tool name in the model
+		r.toolName = string(m)
+
+	case EventMsg:
+		// Switch on the event to set spinner text or anything else
+		switch string(m) {
+		case "received-text":
+			r.eventLabel = "Writing..."
+		case "requires-tool":
+			r.eventLabel = fmt.Sprintf("Away to invoke tool: %s", r.toolName)
+		case "constructing-tool":
+			r.eventLabel = fmt.Sprintf("Constructing info for tool %s...", r.toolName)
+		case "block-finished":
+			r.eventLabel = "Processing..."
+		default:
+			r.eventLabel = ""
+		}
 	}
 
 	// Update the viewport if needed
@@ -101,14 +131,22 @@ func (r *MarkdownRenderer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return r, tea.Batch(cmds...)
 }
 
-// View renders the current state
+// Render the view
 func (r *MarkdownRenderer) View() string {
-	// Render either the viewport (if we need scrolling) plus spinner
-	// or the rendered text plus spinner.
-	var spinnerView = fmt.Sprintf(
-		"%s %s",
+	// If you want to show both the current event and the tool name:
+	// e.g. "Constructing tool [my-tool]"
+	// Or you can show just the event label; it’s up to you
+	combinedLabel := r.eventLabel
+	if r.toolName != "" {
+		combinedLabel += " [" + r.toolName + "]"
+	}
+	if combinedLabel == "" {
+		combinedLabel = "Loading..."
+	}
+
+	spinnerView := fmt.Sprintf("%s %s",
 		r.spinner.View(),
-		lipgloss.NewStyle().Italic(true).Render("Loading..."),
+		lipgloss.NewStyle().Italic(true).Render(combinedLabel),
 	)
 
 	if r.viewportNeeded() {
@@ -132,21 +170,16 @@ func (r *MarkdownRenderer) updateViewportCmd() tea.Msg {
 	wasAtBottom := r.viewport.ScrollPercent() == 1.0
 	oldHeight := r.height
 
-	// Render the full content
 	rendered, err := r.renderer.Render(r.output)
 	if err != nil {
-		return nil // handle error appropriately
+		// Return nil or handle error
+		return nil
 	}
 
-	// Clean up the rendered content
 	rendered = strings.TrimRightFunc(rendered, unicode.IsSpace)
-	rendered = strings.ReplaceAll(rendered, "\t", strings.Repeat(" ", 4))
 	r.rendered = rendered + "\n"
-
-	// Calculate new dimensions
 	r.height = lipgloss.Height(r.rendered)
 
-	// Handle viewport content
 	if r.width > 0 {
 		truncated := r.lipgloss.NewStyle().MaxWidth(r.width).Render(r.rendered)
 		r.viewport.SetContent(truncated)
@@ -154,11 +187,9 @@ func (r *MarkdownRenderer) updateViewportCmd() tea.Msg {
 		r.viewport.SetContent(r.rendered)
 	}
 
-	// Auto-scroll if we were at the bottom
 	if oldHeight < r.height && wasAtBottom {
 		r.viewport.GotoBottom()
 	}
-
 	return nil
 }
 
@@ -166,7 +197,6 @@ func (r *MarkdownRenderer) viewportNeeded() bool {
 	return r.height > r.viewport.Height
 }
 
-// RunRenderer starts the Bubble Tea program
 func RunRenderer(input io.Reader) error {
 	renderer, err := NewMarkdownRenderer()
 	if err != nil {
@@ -175,26 +205,32 @@ func RunRenderer(input io.Reader) error {
 
 	p := tea.NewProgram(renderer)
 
-	// Start reading input in a goroutine
+	// Decode JSON objects in a goroutine as they arrive
 	go func() {
-		reader := bufio.NewReader(input)
-		buf := make([]byte, 1024)
+		dec := json.NewDecoder(input)
 
 		for {
-			n, err := reader.Read(buf)
-			if n > 0 {
-				p.Send(StreamContent(buf[:n]))
-			}
-			if err == io.EOF {
-				p.Send(tea.Quit()) // Signal Bubble Tea to quit on EOF
+			var data InputData
+			// Read one JSON object from the stream
+			// println(input)
+			if err := dec.Decode(&data); err != nil {
+				if err == io.EOF {
+					// End of stream
+					break
+				}
+				// Non-EOF error
+				fmt.Fprintf(os.Stderr, "Error decoding JSON: %v\n", err)
 				break
 			}
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
-				p.Send(tea.Quit()) // Optionally signal quit on error as well
-				break
-			}
+
+			// Dispatch messages to Bubble Tea
+			p.Send(ToolMsg(data.Tool))
+			p.Send(EventMsg(data.Event))
+			p.Send(StreamContent(data.Text))
 		}
+
+		// Once the stream ends or there's an error, quit Bubble Tea
+		p.Send(tea.Quit())
 	}()
 
 	_, err = p.Run()

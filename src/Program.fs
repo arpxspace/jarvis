@@ -103,16 +103,14 @@ let ask llm state : string =
 
                                     let filepath = $"/Users/amirpanahi/notes/literature/{input.filename}"
                                     File.AppendAllText(filepath, input.note)
-                                    let text = $"\n\n**Written to: {filepath}**"
-                                    do! stdin.WriteAsync (content.Serialize (Some tool.Name) (Some text)) |> Async.AwaitTask
-                                    do! stdin.WriteAsync(text) |> Async.AwaitTask
+                                    let text = ReceivedText $"\n\n**Written to: {filepath}**"
+                                    do! stdin.WriteAsync (text.Serialize None None) |> Async.AwaitTask
                                     do! stdin.FlushAsync() |> Async.AwaitTask
-                                    AnsiConsole.MarkupLine text
 
                                     return
                                         { acc with
                                             Tool = None
-                                            Text = acc.Text + text }
+                                            Text = acc.Text + $"\n\n**Written to: {filepath}**" }
                                 | _ -> return acc
                         })
                     { Text = ""; Tool = None }
