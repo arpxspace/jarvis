@@ -1,20 +1,19 @@
 # Jarvis
 
+A minimal TUI that started off as being a prettified version of the existing ollama TUI. I felt that it was hard to read and distinguish rich text from the markdown that was being produced from ollama and so i went on this journey to build an llm client on the terminal that better fitted my needs. Over time this project grew arms and legs to the point where now Jarvis can be seen as an AI agent within the terminal. Here are the following features/functinalities
+
+* Multi-line input
+* Can use any LLM Model (Claude, OpenAI) but currently defaults to Claude 3.5 Sonnet
+* When offline automatically uses Ollama instead
+* Prettified markdown output with clear formatting
+* Status bar suggesting the steps the Agent is taking
+* Custom tool use
+  - `write-tool`: writes a literature note to the users specified directory path based on the current thread of messages
+  - more to come ...
+* *MCP* (TODO)
+  - uses tool use from the `filesystem` MCP server
+
 **Pre-requisites**:
-- Ollama
-- Glow
+- Claude API key
+- Ollama installed
 
-This should enhance the existing ollama ux:
-
-Everything that the TUI ollama provides with the extra following:
-
-1. multi-line input
-2. prettified ollama response with `glow`
-3. chat history
-4. more?...
-
-The existing ollama tui doesnt make it easy to distinguish between code blocks and rich formatting. This program aims to solve that.
-
-https://github.com/user-attachments/assets/75e45e8e-09d0-47c2-9322-d0cb85836161
-
-Need to work on the flickering issue. Unfortunately the markdown renderer `glow` does not support input streaming into the stdin. so had to find a hack which causes this flickering issue.
