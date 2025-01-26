@@ -27,15 +27,36 @@ type Tool =
       input_schema: ToolInput }
 
 module Tool =
-    // let record_thinking: Tool = {
-    //     name = "record_thinking"
-    //     description = "Prompt the user to reflect on their pondering"
-    // }
+    let record_thinking: Tool =
+        let input_schema: ToolInput =
+            { ``type`` = "object"
+              required = [| "decision_making"; |]
+              properties =
+                Map.ofList
+                    [ "decision_making",
+                      { ``type`` = "boolean"
+                        description = "If the user seems to be pondering about a decision theyre trying to make based on a problem they have. (preferably a semi-big decision or larger) and would be useful for them to think it through properly" } ] }
+        {
+            name = "record_thinking"
+            description = "Prompt the user to reflect on their pondering"
+            input_schema = input_schema
+        }
 
-    // let record_mistake: Tool =
-    //     name = "record_thinking"
-    //     description = "Prompt the user to jot down thei misconceptions or mistakes for future reference"
-    // }
+    let record_mistake: Tool =
+        let input_schema: ToolInput =
+            { ``type`` = "object"
+              required = [| "has_made_mistake"; |]
+              properties =
+                Map.ofList
+                    [ "has_made_mistake",
+                      { ``type`` = "string"
+                        description = "If the user has shown to have a misconcpetion or made a faulty error that would prove to be BENEFICIAL to the users sake if the mistake was not repeated again" } ] }
+
+        {
+            name = "record_mistake"
+            description = "Prompt the user to jot down their misconceptions or mistakes for future reference"
+            input_schema = input_schema
+        }
 
     let write_note: Tool =
 

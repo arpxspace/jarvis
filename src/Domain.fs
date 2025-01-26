@@ -6,10 +6,29 @@ open System.Text.Json.Serialization
 
 type ChatMessage = { role: string; content: string }
 
-type ToolData = {
-    Name: string
-    Schema: string //JSON stringified
-}
+type ToolData = 
+    | WriteNote of schema: string
+    | RecordThinking of schema: string
+    | RecordMistake of schema: string
+    with
+        static member fromString str =
+            match str with
+            | "write-note" -> Some (WriteNote "")
+            | "record-thinking" -> Some (RecordThinking "")
+            | "record-mistake" -> Some (RecordMistake "")
+            | _ -> None
+
+        member this.Name =
+            match this with
+            | WriteNote _ -> "write-note"
+            | RecordThinking _ -> "record-thinking"
+            | RecordMistake _ -> "record-mistake"
+
+        member this.UpdateSchema partial =
+            match this with
+            | WriteNote schema -> WriteNote (schema + partial)
+            | RecordThinking schema -> RecordThinking (schema + partial)
+            | RecordMistake schema -> RecordMistake (schema + partial)
 
 type Event =
     | ReceivedText of string

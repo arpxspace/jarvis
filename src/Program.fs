@@ -83,7 +83,7 @@ let ask llm state : string =
                                 do! stdin.FlushAsync() |> Async.AwaitTask
                                 return
                                     { acc with
-                                        Tool = Some({ Name = tool; Schema = "" }) }
+                                        Tool = ToolData.fromString tool }
                             | ConstructingToolSchema partial ->
                                 match acc.Tool with
                                 | Some tool ->
@@ -91,28 +91,24 @@ let ask llm state : string =
                                     do! stdin.FlushAsync() |> Async.AwaitTask
                                     return
                                         { acc with
-                                            Tool = Some { tool with Schema = tool.Schema + partial } }
+                                            Tool = Some (tool.UpdateSchema partial) }
                                 | None -> return acc
                             | BlockFinished ->
                                 match acc.Tool with
-                                | Some tool when tool.Name = "write_note" ->
-                                    let input =
-                                        JsonSerializer.Deserialize<Tools.WriteNoteSchema>(
-                                            tool.Schema,
-                                            jsonOptions
-                                        )
-
+                                | Some (WriteNote schema) ->
+                                    let input = JsonSerializer.Deserialize<Tools.WriteNoteSchema>(schema, jsonOptions)
                                     let filepath = $"/Users/amirpanahi/notes/literature/{input.filename}"
-                                    File.AppendAllText(filepath, input.note)
-                                    let text = ReceivedText $"\n\n**Written to: {filepath}**"
-                                    do! stdin.WriteAsync (text.Serialize None None) |> Async.AwaitTask
+
+                                    do! File.AppendAllTextAsync(filepath, input.note) |> Async.AwaitTask
+
+                                    let notification = $"\n\n**Written to: {filepath}**"
+                                    do! stdin.WriteAsync(ReceivedText(notification).Serialize None None) |> Async.AwaitTask
                                     do! stdin.FlushAsync() |> Async.AwaitTask
 
-                                    return
-                                        { acc with
-                                            Tool = None
-                                            Text = acc.Text + $"\n\n**Written to: {filepath}**" }
-                                | _ -> return acc
+                                    return { acc with Tool = None; Text = acc.Text + notification }
+                                | Some (RecordThinking schema) ->  return acc 
+                                | Some (RecordMistake schema) ->  return acc 
+                                | None -> return acc 
                         })
                     { Text = ""; Tool = None }
 
@@ -162,7 +158,7 @@ let main argv =
     let isInternetAvailable () =                    
         try
             use ping = new Ping()
-            let reply = ping.Send("8.8.8.8", 3000) // Ping Google DNS w/ 3 second timeout
+            let reply = ping.Send("8.8.8.8") // Ping Google DNS 
             reply.Status = IPStatus.Success
         with
         | _ -> false
