@@ -2,6 +2,7 @@
 open System.Threading
 open FSharp.Control
 open System.Net.Http
+open System.Net.NetworkInformation
 open System.Text
 open System.Text.Json
 open Domain
@@ -117,7 +118,6 @@ let ask llm state : string =
 
             stdin.Close()
             proc.WaitForExit()
-            // printfn ""
             return res.Text
         })
     |> await
@@ -159,19 +159,40 @@ let rec chat (state: State) (llm: LLM) =
 
 [<EntryPoint>]
 let main argv =
+    let isInternetAvailable () =                    
+        try
+            use ping = new Ping()
+            let reply = ping.Send("8.8.8.8", 3000) // Ping Google DNS w/ 3 second timeout
+            reply.Status = IPStatus.Success
+        with
+        | _ -> false
+        
     match argv with
     | [| llm_param |] ->
         let llm =
             match llm_param with
             | "claude" -> Claude
             | "ollama" -> Ollama
-            | _ -> Ollama
+            | _ ->
+                // Fallback
+                match isInternetAvailable () with
+                | true -> Claude 
+                | false -> Ollama // Ollama can be used offline
 
         let initially =
             { Message = You ""
               Conversation = List.Empty }
 
         chat initially llm
-    | _ -> printfn "Usage: jarvis <llm>"
+    | _ ->
+        let llm =
+            match isInternetAvailable () with
+            | true -> Claude 
+            | false -> Ollama // Ollama can be used offline
 
+        let initially =
+            { Message = You ""
+              Conversation = List.Empty }
+
+        chat initially llm
     0
