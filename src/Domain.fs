@@ -13,9 +13,9 @@ type ToolData =
     with
         static member fromString str =
             match str with
-            | "write-note" -> Some (WriteNote "")
-            | "record-thinking" -> Some (RecordThinking "")
-            | "record-mistake" -> Some (RecordMistake "")
+            | "write_note" -> Some (WriteNote "")
+            | "record_thinking" -> Some (RecordThinking "")
+            | "record_mistake" -> Some (RecordMistake "")
             | _ -> None
 
         member this.Name =

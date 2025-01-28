@@ -106,9 +106,35 @@ let ask llm state : string =
                                     do! stdin.FlushAsync() |> Async.AwaitTask
 
                                     return { acc with Tool = None; Text = acc.Text + notification }
-                                | Some (RecordThinking schema) ->  return acc 
-                                | Some (RecordMistake schema) ->  return acc 
-                                | None -> return acc 
+                                | Some (RecordThinking schema) 
+                                | Some (RecordMistake schema) ->   
+                                    //stop prettified output program 
+                                    proc.Kill()
+
+                                    Thread.Sleep 1000
+
+                                    printfn ""
+                                    printfn ""
+
+                                    let subProcessInfo = ProcessStartInfo()
+                                    subProcessInfo.FileName <-
+                                        match acc.Tool.Value.Name with
+                                        | "record-thinking" -> "/Users/amirpanahi/Documents/projects/think/bin/Debug/net9.0/think"
+                                        | "record-mistake" -> "/Users/amirpanahi/Documents/projects/oops/bin/Debug/net9.0/oops"
+                                        | _ -> "/Users/amirpanahi/Documents/projects/jarvis/prettified-output/main"
+                                    subProcessInfo.UseShellExecute <- false
+
+                                    use thinkProc = Process.Start(subProcessInfo)
+                                    thinkProc.WaitForExit()
+
+                                    //TODO: reinject a new message into the conversation
+
+                                    //restart prettified output program 
+                                    proc.Start() |> ignore
+
+                                    return acc
+                                | None ->
+                                    return acc 
                         })
                     { Text = ""; Tool = None }
 

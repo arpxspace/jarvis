@@ -50,11 +50,11 @@ module Tool =
                 Map.ofList
                     [ "has_made_mistake",
                       { ``type`` = "string"
-                        description = "If the user has shown to have a misconcpetion or made a faulty error that would prove to be BENEFICIAL to the users sake if the mistake was not repeated again" } ] }
+                        description = "If the user has explicitly acknowledged to have had a misconcpetion or made a faulty error which would prove BENEFICIAL to the user if the mistake was not repeated again to be recorded for future reference" } ] }
 
         {
             name = "record_mistake"
-            description = "Prompt the user to jot down their misconceptions or mistakes for future reference"
+            description = "Prompt the user to jot down their misconceptions or mistakes for future reference. do not confuse this with the user being generally curious about knowing/learning something."
             input_schema = input_schema
         }
 
