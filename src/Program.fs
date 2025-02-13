@@ -230,10 +230,6 @@ let rec chat (state: State) (llm: LLM) =
                      Message = You(Explicit(ChatContent.Text "")) }
              | Tool(Some jarvis_tr, Some user_tr) ->
 
-                 //TODO: the problem is here
-                 // there needs to be both jarvis request and user tool response
-                 // need to modify `ToolResponse` to accept both jarvis req and user res
-
                  let newConvo =
                      state.Conversation
                      |> withNewChat (Jarvis(Implicit(ChatContent.Tool(Some jarvis_tr, Some user_tr))))
