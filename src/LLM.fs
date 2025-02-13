@@ -9,23 +9,22 @@ open System.Threading
 open FSharp.Control
 
 let createPayload (convo: Conversation) (init: LLM) =
-    ///TODO: update this serialized convo so that `content` has the tool response
-    // {
-    //   "role": "user",
-    //   "content": [
-    //     {
-    //       "type": "tool_result",
-    //       "tool_use_id": "toolu_01A09q90qw90lq917835lq9",
-    //       "content": "15 degrees"
-    //     }
-    //   ]
-    // }
     let serializedConvo =
         convo
         |> List.map (fun x ->
             match x with
-            | You msg -> { role = "user"; content = msg }
-            | Jarvis msg -> { role = "assistant"; content = msg }
+            | You msg ->
+                match msg with
+                | Implicit x ->
+                    { role = "user"; content = x.SerializeUser() } //serialize user res
+                | Explicit x ->
+                    { role = "user"; content = x.Serialize() }
+            | Jarvis msg -> 
+                match msg with
+                | Implicit x ->
+                    { role = "assistant"; content = x.SerializeJarvis() } //serialize jarvis res
+                | Explicit x ->
+                    { role = "assistant"; content = x.Serialize() }
             | _ -> { role = ""; content = "" })
         |> List.filter (fun msg -> not (String.IsNullOrEmpty msg.role))
         |> List.toArray
@@ -54,9 +53,13 @@ let createPayload (convo: Conversation) (init: LLM) =
 
             JsonSerializer.Serialize(p)
 
+    // let doc = JsonDocument.Parse(payload)
+    // let prettyOptions = JsonSerializerOptions(WriteIndented = true)
+    // let formatted = JsonSerializer.Serialize(doc, prettyOptions)
+    // printfn "%A" formatted
     new StringContent(payload)
 
-let makeRequest httpRequest parse (context: Context) (payload: StringContent) =
+let makeRequest httpRequest parse (payload: StringContent) =
     let client = new HttpClient()
 
     asyncSeq {

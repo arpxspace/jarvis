@@ -54,7 +54,7 @@ module Tool =
 
         {
             name = "record_mistake"
-            description = "Prompt the user to jot down their misconceptions or mistakes for future reference. do not confuse this with the user being generally curious about knowing/learning something."
+            description = "Prompt the user to jot down their misconceptions or mistakes for future reference. DO NOT confuse this with the user being generally curious about knowing/learning something. Only invoke this tool if they explicitly are aware that they made a mistake or in response to a question or query have answered something incorrectly"
             input_schema = input_schema
         }
 
@@ -89,12 +89,6 @@ type TextDelta =
 type DeltaContent =
     | InputJson of InputJsonDelta
     | Text of TextDelta
-
-type ToolContentBlock =
-    { ``type``: string
-      id: string
-      name: string
-      input: obj }
 
 [<RequireQualifiedAccess>]
 type ContentBlock =
@@ -204,9 +198,9 @@ let parse (line: string) =
             let event = 
                 match start.content_block with
                 | ContentBlock.Tool tool -> 
-                    RequiresTool tool.name
+                    RequiresTool tool
                 | ContentBlock.Text data ->
-                    ReceivedText ""
+                    ReceivedResponse ""
 
             Ok(Data event)
         | "content_block_delta" ->
@@ -219,9 +213,9 @@ let parse (line: string) =
             | DeltaContent.InputJson delta ->
                 Ok(Data (ConstructingToolSchema delta.partial_json))
             | DeltaContent.Text delta ->
-                Ok(Data (ReceivedText delta.text))
+                Ok(Data (ReceivedResponse delta.text))
         | "content_block_stop" ->
-            Ok(Data BlockFinished)
+            Ok(Data CallTool)
 
         | "message_stop" -> Ok(Ended AsyncSeq.empty)
         | _ -> Error()

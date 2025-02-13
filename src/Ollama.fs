@@ -35,7 +35,7 @@ let parse (line: string) =
         let chatResponse = JsonSerializer.Deserialize<ChatResponse>(line, jsonOptions)
 
         if not chatResponse._done then
-            Ok(Data (ReceivedText chatResponse.message.content))
+            Ok(Data (ReceivedResponse chatResponse.message.content))
         else
             Ok(Ended AsyncSeq.empty)
     with

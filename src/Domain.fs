@@ -4,18 +4,84 @@ open System
 open System.Text.Json
 open System.Text.Json.Serialization
 
+type UserToolResponse = {
+    ``type``: string
+    tool_use_id: string
+    content: string option
+}
+
+type ToolContentBlock =
+    { ``type``: string
+      id: string
+      name: string
+      input: obj }
+
+type JarvisToolResponseText = {
+    ``type``: string;
+    text: string
+}
+
+type JarvisToolResponse =
+    | JarvisToolResponse of (JarvisToolResponseText * ToolContentBlock)
+    with
+        static member Create (schema: string) (text: string) (tool: ToolContentBlock) =
+            let responseText = {
+                ``type`` = "text"
+                text = text 
+            }
+
+            (responseText, tool) |> JarvisToolResponse 
+        member this.Value =
+            match this with
+            | JarvisToolResponse value -> value
+
+        member this.Serialize()=
+            match this with
+            | JarvisToolResponse (text, tool) ->
+                [|
+                    text :> obj
+                    tool :> obj
+                |]
+
+type ChatContent =
+    | Tool of JarvisToolResponse option  * UserToolResponse option
+    | Text of string
+    with
+        member this.Serialize () =
+            match this with
+            | Text str ->
+                str
+            | _ ->
+                ""
+
+        member this.SerializeJarvis () =
+            match this with
+            | Tool (jarvis, user) ->
+                jarvis
+                |> Option.map (fun x -> x.Serialize()) //need to inner serialize for jarvis res
+                |> JsonSerializer.Serialize  
+            | _ ->
+                ""
+
+        member this.SerializeUser () =
+            match this with
+            | Tool (jarvis, user) ->
+                user |> JsonSerializer.Serialize  
+            | _ ->
+                ""
+
 type ChatMessage = { role: string; content: string }
 
 type ToolData = 
-    | WriteNote of schema: string
-    | RecordThinking of schema: string
-    | RecordMistake of schema: string
+    | WriteNote of schema: string * ToolContentBlock
+    | RecordThinking of schema: string * ToolContentBlock
+    | RecordMistake of schema: string * ToolContentBlock
     with
-        static member fromString str =
+        static member init str tool =
             match str with
-            | "write_note" -> Some (WriteNote "")
-            | "record_thinking" -> Some (RecordThinking "")
-            | "record_mistake" -> Some (RecordMistake "")
+            | "write_note" -> Some (WriteNote ("", tool))
+            | "record_thinking" -> Some (RecordThinking ("", tool))
+            | "record_mistake" -> Some (RecordMistake ("", tool))
             | _ -> None
 
         member this.Name =
@@ -26,45 +92,67 @@ type ToolData =
 
         member this.UpdateSchema partial =
             match this with
-            | WriteNote schema -> WriteNote (schema + partial)
-            | RecordThinking schema -> RecordThinking (schema + partial)
-            | RecordMistake schema -> RecordMistake (schema + partial)
+            | WriteNote (schema,id) -> WriteNote ((schema + partial), id)
+            | RecordThinking (schema,id) -> RecordThinking ((schema + partial), id)
+            | RecordMistake (schema,id) -> RecordMistake ((schema + partial), id)
+
+        member this.Finalize () =
+            match this with
+            | WriteNote (schema, tool)
+            | RecordMistake (schema, tool)
+            | RecordThinking (schema, tool) ->
+                {tool with input = JsonDocument.Parse(schema)}
 
 type Event =
-    | ReceivedText of string
-    | RequiresTool of name: string
+    | ReceivedResponse of string
+    | RequiresTool of ToolContentBlock 
     | ConstructingToolSchema of partial_json: string
-    | BlockFinished
+    | CallTool
     with
         /// This is for sending it to 'prettified-output' go program for rendering
         member this.Serialize tool text =
             match this with
-            | ReceivedText text -> 
-                {| Text = text; Tool = ""; Event = "received-text"|} |> JsonSerializer.Serialize  
-            | RequiresTool tool ->
+            | ReceivedResponse res -> 
+                {| Text = res; Tool = ""; Event = "received-text"|} |> JsonSerializer.Serialize  
+            | RequiresTool {name = tool; id = id} ->
                 {| Text = text |> Option.defaultValue ""; Tool = tool; Event = "requires-tool" |} |> JsonSerializer.Serialize
             | ConstructingToolSchema _ ->
                 {| Text = text |> Option.defaultValue ""; Tool = tool |> Option.defaultValue ""; Event = "constructing-tool"|} |> JsonSerializer.Serialize
-            | BlockFinished ->
+            | CallTool ->
                 {| Text = ""; Tool = ""; Event = "block-finished"|} |> JsonSerializer.Serialize
 
 [<RequireQualifiedAccess>]
-type Context = {
-    Text: string
+type ParseContext = {
+    Response: ChatContent
     Tool: ToolData option
+    // RestartRenderer: bool
 }
 
-type ParseResponse = 
+type ParseStatus = 
     | Data of Event
     | Ended of AsyncSeq<string>
+
+//TODO: reference in future
+type OllamaModel =
+    | DeepSeek
+    | LLaMA
+with
+    member this.Serialize () =
+        match this with
+        | DeepSeek -> "deepseek-r1"
+        | LLaMA -> "jarvis"
 
 type LLM =
     | Claude
     | Ollama
 
+type MessageMode = 
+    | Implicit of ChatContent //tool use, mcp
+    | Explicit of ChatContent //text generation
+
 type Message =
-    | You of msg: string
-    | Jarvis of msg: string
+    | You of MessageMode
+    | Jarvis of MessageMode
     | Quit
 
 type Conversation = Message list

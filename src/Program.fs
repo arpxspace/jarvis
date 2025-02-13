@@ -33,7 +33,7 @@ let withNewChat (msg: Message) (convo: Conversation) =
     | You msg -> [ yield! convo; You msg ]
     | Jarvis msg -> [ yield! convo; Jarvis msg ]
 
-let ask llm state : string =
+let ask llm state : ChatContent =
     let (payload, httpRequest) =
         match llm with
         | Ollama ->
@@ -54,7 +54,7 @@ let ask llm state : string =
 
     let jsonOptions = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
 
-    LLM.makeRequest httpRequest parseHandler { Tool = None; Text = "" } payload
+    LLM.makeRequest httpRequest parseHandler payload
     |> (fun stream ->
         async {
             let startInfo = ProcessStartInfo()
@@ -67,80 +67,117 @@ let ask llm state : string =
 
             let! res =
                 stream
-                |> AsyncSeq.foldAsync<Context, Event>
+                |> AsyncSeq.foldAsync<ParseContext, Event>
                     (fun acc content ->
                         async {
                             // printfn "%A" acc
                             // printfn ""
 
+                            // if acc.RestartRenderer then
+                            //     proc.Start() |> ignore
+
                             match content with
-                            | ReceivedText text ->
-                                do! stdin.WriteAsync (content.Serialize None (Some text)) |> Async.AwaitTask
+                            | ReceivedResponse res ->
+                                do! stdin.WriteAsync(content.Serialize None (Some res)) |> Async.AwaitTask
                                 do! stdin.FlushAsync() |> Async.AwaitTask
-                                return { acc with Text = acc.Text + text }
-                            | RequiresTool tool ->
-                                do! stdin.WriteAsync (content.Serialize (Some tool) None) |> Async.AwaitTask
-                                do! stdin.FlushAsync() |> Async.AwaitTask
+
                                 return
                                     { acc with
-                                        Tool = ToolData.fromString tool }
+                                        Response = ChatContent.Text(acc.Response.Serialize() + res) }
+                            | RequiresTool tool ->
+                                do! stdin.WriteAsync(content.Serialize (Some tool.name) None) |> Async.AwaitTask
+                                do! stdin.FlushAsync() |> Async.AwaitTask
+
+                                return
+                                    { acc with
+                                        Tool = ToolData.init tool.name tool }
                             | ConstructingToolSchema partial ->
                                 match acc.Tool with
                                 | Some tool ->
-                                    do! stdin.WriteAsync (content.Serialize (Some tool.Name) None) |> Async.AwaitTask
+                                    do! stdin.WriteAsync(content.Serialize (Some tool.Name) None) |> Async.AwaitTask
                                     do! stdin.FlushAsync() |> Async.AwaitTask
+
                                     return
                                         { acc with
-                                            Tool = Some (tool.UpdateSchema partial) }
+                                            Tool = Some(tool.UpdateSchema partial) }
                                 | None -> return acc
-                            | BlockFinished ->
+                            | CallTool ->
+                                let latestTextOutput =
+                                    acc.Response
+                                    |> function
+                                    | Text t -> t
+                                    | _ -> ""
+
                                 match acc.Tool with
-                                | Some (WriteNote schema) ->
+                                | Some(WriteNote(schema, tool)) ->
                                     let input = JsonSerializer.Deserialize<Tools.WriteNoteSchema>(schema, jsonOptions)
                                     let filepath = $"/Users/amirpanahi/notes/literature/{input.filename}"
 
                                     do! File.AppendAllTextAsync(filepath, input.note) |> Async.AwaitTask
 
                                     let notification = $"\n\n**Written to: {filepath}**"
-                                    do! stdin.WriteAsync(ReceivedText(notification).Serialize None None) |> Async.AwaitTask
+                                    do! stdin.WriteAsync(notification) |> Async.AwaitTask
                                     do! stdin.FlushAsync() |> Async.AwaitTask
 
-                                    return { acc with Tool = None; Text = acc.Text + notification }
-                                | Some (RecordThinking schema) 
-                                | Some (RecordMistake schema) ->   
-                                    //stop prettified output program 
+
+                                    let toolResponse: UserToolResponse =
+                                        { ``type`` = "tool_result"
+                                          tool_use_id = tool.id
+                                          content = Some notification }
+
+                                    return
+                                        { acc with
+                                            Tool = None
+                                            Response =
+                                                JarvisToolResponse.Create schema latestTextOutput tool
+                                                |> (fun x -> (Some x, Some toolResponse))
+                                                |> ChatContent.Tool }
+
+                                | Some(RecordThinking(schema, tool))
+                                | Some(RecordMistake(schema, tool)) ->
+                                    //stop prettified output program
                                     proc.Kill()
 
                                     Thread.Sleep 1000
 
                                     printfn ""
-                                    printfn ""
 
                                     let subProcessInfo = ProcessStartInfo()
+
                                     subProcessInfo.FileName <-
                                         match acc.Tool.Value.Name with
-                                        | "record-thinking" -> "/Users/amirpanahi/Documents/projects/think/bin/Debug/net9.0/think"
-                                        | "record-mistake" -> "/Users/amirpanahi/Documents/projects/oops/bin/Debug/net9.0/oops"
-                                        | _ -> "/Users/amirpanahi/Documents/projects/jarvis/prettified-output/main"
+                                        | "record-thinking" ->
+                                            "/Users/amirpanahi/Documents/projects/think/bin/Debug/net9.0/think"
+                                        | "record-mistake" ->
+                                            "/Users/amirpanahi/Documents/projects/oops/bin/Debug/net9.0/oops"
+                                        | _ -> failwith "should be a tool name that is recognised"
+
                                     subProcessInfo.UseShellExecute <- false
 
                                     use thinkProc = Process.Start(subProcessInfo)
                                     thinkProc.WaitForExit()
 
-                                    //TODO: reinject a new message into the conversation
+                                    let toolResponse: UserToolResponse =
+                                        { ``type`` = "tool_result"
+                                          tool_use_id = tool.id
+                                          content = Some "This has now been resolved" }
 
-                                    //restart prettified output program 
-                                    proc.Start() |> ignore
+                                    return
+                                        { acc with
+                                            Tool = None
+                                            Response =
+                                                JarvisToolResponse.Create schema latestTextOutput tool
+                                                |> (fun x -> (Some x, Some toolResponse))
+                                                |> ChatContent.Tool }
 
-                                    return acc
-                                | None ->
-                                    return acc 
+                                | None -> return acc
                         })
-                    { Text = ""; Tool = None }
+                    { Response = ChatContent.Text ""
+                      Tool = None }
 
             stdin.Close()
             proc.WaitForExit()
-            return res.Text
+            return res.Response
         })
     |> await
 
@@ -151,21 +188,33 @@ let rec chat (state: State) (llm: LLM) =
     | You prompt ->
         state |> UI.display |> ignore
 
-        let input = System.Console.ReadLine()
-
-        let newState =
-            match input with
-            | "exit"
-            | "quit" -> { state with Message = Quit }
-            | "/end" ->
+        match prompt with
+        | Implicit response ->
+            let newState =
                 { state with
-                    Message = Jarvis ""
-                    Conversation = withNewChat (You prompt) state.Conversation } //end
-            | str ->
-                { state with
-                    Message = You(prompt + "\n" + str) }
+                    Message = "" |> ChatContent.Text |> Explicit |> Jarvis 
+                    Conversation = withNewChat (You(Explicit response)) state.Conversation } //end
 
-        chat newState llm
+            chat newState llm
+        | Explicit response ->
+            let input = System.Console.ReadLine()
+
+            let newState =
+                match input with
+                | "exit"
+                | "quit" -> { state with Message = Quit }
+                | "/end" ->
+                    { state with
+                        Message = "" |> ChatContent.Text |> Explicit |> Jarvis 
+                        Conversation = withNewChat (You(Explicit response)) state.Conversation } //end
+                | str ->
+                    //append text to accumulated message
+                    let accumulatedMsg = $"{response.Serialize()}\n{str}"
+
+                    { state with
+                        Message = You(Explicit(ChatContent.Text accumulatedMsg)) }
+
+            chat newState llm
     | Jarvis said ->
         state |> UI.display |> ignore
 
@@ -173,22 +222,47 @@ let rec chat (state: State) (llm: LLM) =
         let response = state |> ask llm
 
         chat
-            { state with
-                Conversation = withNewChat (Jarvis response) state.Conversation
-                Message = You "" }
+            (match response with
+             | Text t ->
+                 // printfn "%A" state.Conversation
+                 { state with
+                     Conversation = withNewChat (t |> ChatContent.Text |> Explicit |> Jarvis) state.Conversation
+                     Message = You(Explicit(ChatContent.Text "")) }
+             | Tool(Some jarvis_tr, Some user_tr) ->
+
+                 //TODO: the problem is here
+                 // there needs to be both jarvis request and user tool response
+                 // need to modify `ToolResponse` to accept both jarvis req and user res
+
+                 let newConvo =
+                     state.Conversation
+                     |> withNewChat (Jarvis(Implicit(ChatContent.Tool(Some jarvis_tr, Some user_tr))))
+                     |> withNewChat (You(Implicit(ChatContent.Tool(Some jarvis_tr, Some user_tr))))
+
+                 { state with
+                     Conversation = newConvo
+                     Message = "" |> ChatContent.Text |> Explicit |> Jarvis } //request jarvis again after tool use done to generate outcome
+             | Tool(None, None)
+             | Tool(_, None)
+             | Tool(None, _) ->
+                 state)
             llm
     | Quit -> ()
 
 [<EntryPoint>]
 let main argv =
-    let isInternetAvailable () =                    
+    let isInternetAvailable () =
         try
             use ping = new Ping()
-            let reply = ping.Send("8.8.8.8") // Ping Google DNS 
+            let reply = ping.Send("8.8.8.8") // Ping Google DNS
             reply.Status = IPStatus.Success
-        with
-        | _ -> false
-        
+        with _ ->
+            false
+
+    let initially =
+        { Message = You(Explicit(ChatContent.Text ""))
+          Conversation = List.Empty }
+
     match argv with
     | [| llm_param |] ->
         let llm =
@@ -198,23 +272,16 @@ let main argv =
             | _ ->
                 // Fallback
                 match isInternetAvailable () with
-                | true -> Claude 
+                | true -> Claude
                 | false -> Ollama // Ollama can be used offline
-
-        let initially =
-            { Message = You ""
-              Conversation = List.Empty }
 
         chat initially llm
     | _ ->
         let llm =
             match isInternetAvailable () with
-            | true -> Claude 
+            | true -> Claude
             | false -> Ollama // Ollama can be used offline
 
-        let initially =
-            { Message = You ""
-              Conversation = List.Empty }
-
         chat initially llm
+
     0
