@@ -52,6 +52,9 @@ let createPayload (convo: Conversation) (init: LLM) =
                        Claude.Tool.record_thinking |] }
 
             JsonSerializer.Serialize(p)
+        | MCP ->
+            // For MCP, the actual payload is handled separately in the MCP module
+            "{}"
 
     // let doc = JsonDocument.Parse(payload)
     // let prettyOptions = JsonSerializerOptions(WriteIndented = true)
@@ -60,39 +63,45 @@ let createPayload (convo: Conversation) (init: LLM) =
     new StringContent(payload)
 
 let makeRequest httpRequest parse (payload: StringContent) =
-    let client = new HttpClient()
+    // Check if this is an MCP request
+    if httpRequest.RequestUri.ToString().StartsWith("http://localhost:8080") then
+        // Use MCP's custom implementation
+        MCP.makeRequest httpRequest parse payload
+    else
+        // Standard HTTP client for Claude and Ollama
+        let client = new HttpClient()
 
-    asyncSeq {
-        // Construct the HttpRequestMessage
-        use request = httpRequest
+        asyncSeq {
+            // Construct the HttpRequestMessage
+            use request = httpRequest
 
-        try
-            use! response =
-                client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead)
-                |> Async.AwaitTask
+            try
+                use! response =
+                    client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead)
+                    |> Async.AwaitTask
 
-            response.EnsureSuccessStatusCode() |> ignore
+                response.EnsureSuccessStatusCode() |> ignore
 
-            use! stream = response.Content.ReadAsStreamAsync() |> Async.AwaitTask
-            use reader = new System.IO.StreamReader(stream)
+                use! stream = response.Content.ReadAsStreamAsync() |> Async.AwaitTask
+                use reader = new System.IO.StreamReader(stream)
 
-            while not reader.EndOfStream do
-                let! line = reader.ReadLineAsync() |> Async.AwaitTask
+                while not reader.EndOfStream do
+                    let! line = reader.ReadLineAsync() |> Async.AwaitTask
 
-                // printfn "%A" line
-                // printfn ""
+                    // printfn "%A" line
+                    // printfn ""
 
-                if not (String.IsNullOrWhiteSpace(line)) then
-                    match parse line with
-                    | Ok(Data x) -> yield x
-                    | Ok(Ended x) -> yield! AsyncSeq.empty
-                    | Error _ -> yield! AsyncSeq.empty
+                    if not (String.IsNullOrWhiteSpace(line)) then
+                        match parse line with
+                        | Ok(Data x) -> yield x
+                        | Ok(Ended x) -> yield! AsyncSeq.empty
+                        | Error _ -> yield! AsyncSeq.empty
 
-        with
-        | :? HttpRequestException as ex ->
-            printfn "HTTP Request Error: %s" ex.Message
-            yield! AsyncSeq.empty
-        | ex ->
-            printfn "Unexpected Error: %s" ex.Message
-            yield! AsyncSeq.empty
-    }
+            with
+            | :? HttpRequestException as ex ->
+                printfn "HTTP Request Error: %s" ex.Message
+                yield! AsyncSeq.empty
+            | ex ->
+                printfn "Unexpected Error: %s" ex.Message
+                yield! AsyncSeq.empty
+        }

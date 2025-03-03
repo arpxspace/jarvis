@@ -46,11 +46,16 @@ let ask llm state : ChatContent =
             let payload = LLM.createPayload state.Conversation Claude
             let request = Claude.httpRequest payload
             (payload, request)
+        | MCP ->
+            let payload = MCP.createPayload state.Conversation MCP
+            let request = MCP.httpRequest payload
+            (payload, request)
 
     let parseHandler =
         match llm with
         | Ollama -> Ollama.parse
         | Claude -> Claude.parse
+        | MCP -> MCP.parse
 
     let jsonOptions = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
 
@@ -265,6 +270,7 @@ let main argv =
             match llm_param with
             | "claude" -> Claude
             | "ollama" -> Ollama
+            | "mcp" -> MCP
             | _ ->
                 // Fallback
                 match isInternetAvailable () with
@@ -272,6 +278,17 @@ let main argv =
                 | false -> Ollama // Ollama can be used offline
 
         chat initially llm
+    | [| "mcp"; server_name |] ->
+        // Set the MCP server name in environment variable
+        Environment.SetEnvironmentVariable("MCP_SERVER_NAME", server_name)
+        chat initially MCP
+    | [| "mcp-servers" |] ->
+        // List available MCP servers
+        let servers = MCP.loadServerConfigs()
+        printfn "Available MCP servers:"
+        for server in servers do
+            printfn "  %s - %s (%s)" server.name server.url server.description
+        0 // Return exit code
     | _ ->
         let llm =
             match isInternetAvailable () with

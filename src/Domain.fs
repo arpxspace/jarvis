@@ -144,6 +144,7 @@ with
 type LLM =
     | Claude
     | Ollama
+    | MCP
 
 type MessageMode = 
     | Implicit of ChatContent //tool use, mcp

@@ -1,0 +1,14 @@
+{
+  "servers": [
+    {
+      "name": "default",
+      "url": "ws://localhost:8080",
+      "description": "Default local MCP server"
+    },
+    {
+      "name": "example",
+      "url": "ws://example.com:8765",
+      "description": "Example remote MCP server"
+    }
+  ]
+}

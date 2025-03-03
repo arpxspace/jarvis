@@ -10,6 +10,7 @@
     <Compile Include="Tools.fs" />
     <Compile Include="Claude.fs" />
     <Compile Include="Ollama.fs" />
+    <Compile Include="MCP.fs" />
     <Compile Include="LLM.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
