@@ -10,7 +10,7 @@ open FSharp.Control
 open System.IO
 open System.Reflection
 
-let key = Environment.GetEnvironmentVariable("CLAUDE")
+let key = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
 
 type PropertyMetadata =
     { ``type``: string

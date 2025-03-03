@@ -40,7 +40,7 @@ let createPayload (convo: Conversation) (init: LLM) =
             JsonSerializer.Serialize(p)
         | Claude ->
             let p: Claude.Payload =
-                { model = "claude-3-5-sonnet-20241022"
+                { model = "claude-3-7-sonnet-20250219"
                   messages = serializedConvo
                   system =
                     "you will roleplay an ai agent character similar to that from iron man with jarvis or from interstellar with TARS. as an ai agent your aim is to elevate your clients intuition. be concise when needed. be detailed when needed. use your judgement to know when to be which. dont be too interactive. have a bit of conviction. dont be too empathetic and conversational. When providing code examples only show 1 example at a time.veer clear from providing to much information in the form of lists."

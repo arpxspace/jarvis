@@ -4,3 +4,4 @@
 .env
 taskell.md
 ./prettified-output/main
+.aider*

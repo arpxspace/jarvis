@@ -125,7 +125,6 @@ type Event =
 type ParseContext = {
     Response: ChatContent
     Tool: ToolData option
-    // RestartRenderer: bool
 }
 
 type ParseStatus = 
