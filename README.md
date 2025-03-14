@@ -5,7 +5,7 @@ https://github.com/user-attachments/assets/a2138e8f-aa9b-488d-8d1d-db0fbf827ce0
 A minimal TUI that started off as being a prettified version of the existing ollama TUI. I felt that it was hard to read and distinguish rich text from the markdown that was being produced from ollama and so i went on this journey to build an llm client on the terminal that better fitted my needs. Over time this project grew arms and legs to the point where now Jarvis can be seen as an AI agent within the terminal. Here are the following features/functinalities
 
 * Multi-line input
-* Currently defaults to Claude 3.5 Sonnet
+* Currently defaults to Claude 3.7 Sonnet
 * When offline automatically uses Ollama llama3
 * Prettified markdown output with clear formatting
 * Status bar suggesting the steps the Agent is taking
