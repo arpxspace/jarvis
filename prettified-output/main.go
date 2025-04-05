@@ -106,7 +106,7 @@ func (r *MarkdownRenderer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "received-text":
 			r.eventLabel = "Writing..."
 		case "requires-tool":
-			r.eventLabel = fmt.Sprintf("Away to invoke tool: %s", r.toolName)
+			r.eventLabel = "Calling..."
 		case "constructing-tool":
 			r.eventLabel = fmt.Sprintf("Constructing info for tool %s...", r.toolName)
 		case "block-finished":
