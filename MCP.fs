@@ -45,12 +45,12 @@ let createClients (config: JarvisMcpServers) =
     |> Task.WhenAll
 
 let listTools (mcpClients: (string * IMcpClient) array) =
-    let names = mcpClients |> Array.map fst
-    task {
-        let! elements = task { return! mcpClients |> Array.map snd |> Array.map (_.ListToolsAsync()) |> Task.WhenAll }
+    let (names, clients) = mcpClients |> Array.unzip
 
-        let x = elements |> Array.map Array.ofSeq
-        return Array.zip names x
+    task {
+        let! elements = task { return! clients |> Array.map (_.ListToolsAsync()) |> Task.WhenAll }
+
+        return elements |> Array.map Array.ofSeq |> Array.zip names 
     }
 
 let display (tools: (string * McpClientTool array) array option) detailed =
