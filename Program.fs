@@ -13,30 +13,29 @@ open Spectre
 open Spectre.Console
 open FSharp.Json
 open Anthropic
+open ModelContextProtocol.Client
+open ModelContextProtocol.Protocol.Transport
 
 // Define types for API request and response
-type ClaudeContentBlock = {
-    Type: string
-    Text: string
-}
+type ClaudeContentBlock = { Type: string; Text: string }
 
-type ClaudeResponse = {
-    Id: string
-    Content: ClaudeContentBlock[]
-    Model: string
-    StopReason: string
-    StopSequence: string option
-    Usage: {| InputTokens: int; OutputTokens: int |}
-}
+type ClaudeResponse =
+    { Id: string
+      Content: ClaudeContentBlock[]
+      Model: string
+      StopReason: string
+      StopSequence: string option
+      Usage:
+          {| InputTokens: int
+             OutputTokens: int |} }
 
-type ClaudeRequest = {
-    Model: string
-    [<JsonField("max_tokens")>]    
-    MaxTokens: int
-    Messages: ChatMessage[]
-    System: string
-    Stream: bool
-}
+type ClaudeRequest =
+    { Model: string
+      [<JsonField("max_tokens")>]
+      MaxTokens: int
+      Messages: ChatMessage[]
+      System: string
+      Stream: bool }
 
 module UI =
     let display (state: State) =
@@ -64,12 +63,12 @@ let ask llm state : ChatContent =
         match llm with
         | Ollama ->
             let model = "jarvis"
-            let payload = LLM.createPayload state.Conversation Ollama
+            let payload = LLM.createPayload state Ollama
             let request = Ollama.httpRequest payload
             (payload, request)
         | Claude ->
             let model = "claude-3-5-sonnet-20241022"
-            let payload = LLM.createPayload state.Conversation Claude
+            let payload = LLM.createPayload state Claude
             let request = Claude.httpRequest payload
             (payload, request)
 
@@ -131,38 +130,19 @@ let ask llm state : ChatContent =
                                 let latestTextOutput =
                                     acc.Response
                                     |> function
-                                    | Text t -> t
-                                    | _ -> ""
+                                        | Text t -> t
+                                        | _ -> ""
 
                                 match acc.Tool with
-                                | Some(RecordThinking(schema, tool))
-                                | Some(RecordMistake(schema, tool)) ->
-                                    //stop prettified output program
-                                    proc.Kill()
-
-                                    Thread.Sleep 1000
-
-                                    printfn ""
-
-                                    let subProcessInfo = ProcessStartInfo()
-
-                                    subProcessInfo.FileName <-
-                                        match acc.Tool.Value.Name with
-                                        | "record-thinking" ->
-                                            "/Users/amirpanahi/Documents/projects/think/bin/Debug/net9.0/think"
-                                        | "record-mistake" ->
-                                            "/Users/amirpanahi/Documents/projects/oops/bin/Debug/net9.0/oops"
-                                        | _ -> failwith "should be a tool name that is recognised"
-
-                                    subProcessInfo.UseShellExecute <- false
-
-                                    use thinkProc = Process.Start(subProcessInfo)
-                                    thinkProc.WaitForExit()
+                                | Some(Think(schema, tool))
+                                | Some(WriteNote(schema, tool)) ->
+                                    let input = JsonSerializer.Deserialize<Tools.WriteNoteSchema>(schema, jsonOptions)
+                                    Tools.writeNote input.note input.filename
 
                                     let toolResponse: UserToolResponse =
                                         { ``type`` = "tool_result"
                                           tool_use_id = tool.id
-                                          content = Some "This has now been resolved" }
+                                          content = Some $"The file has been written with filename: {input.filename}" }
 
                                     return
                                         { acc with
@@ -171,7 +151,6 @@ let ask llm state : ChatContent =
                                                 JarvisToolResponse.Create schema latestTextOutput tool
                                                 |> (fun x -> (Some x, Some toolResponse))
                                                 |> ChatContent.Tool }
-
                                 | None -> return acc
                         })
                     { Response = ChatContent.Text ""
@@ -194,7 +173,7 @@ let rec chat (state: State) (llm: LLM) =
         | Implicit response ->
             let newState =
                 { state with
-                    Message = "" |> ChatContent.Text |> Explicit |> Jarvis 
+                    Message = "" |> ChatContent.Text |> Explicit |> Jarvis
                     Conversation = withNewChat (You(Explicit response)) state.Conversation } //end
 
             chat newState llm
@@ -209,34 +188,34 @@ let rec chat (state: State) (llm: LLM) =
                     printfn "Generating summary of chat history..."
 
                     try
-                        let content = 
-                            state.Conversation
-                            |> Json.serialize
-                        
+                        let content = state.Conversation |> Json.serialize
+
                         if String.IsNullOrEmpty content then
                             printfn "No conversation history to summarize."
                             state
                         else
-                            
+
                             // Create direct API request to Anthropic
                             let client = new HttpClient()
-                            
+
                             // Prepare the payload
                             let apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
-                            let systemPrompt = "Write 5 concise bullet points rich in information that describe any design decisions, insights uncovered, errors and issues encountered from the chat history that would be useful for future reference. Things like: 'I need to bare in mind X' or 'Key points to consider are X' or 'As a result of X then Y'. Notes that will help me in the future keep on top of how things morphozises over time"
-                            
+
+                            let systemPrompt =
+                                "Write 5 concise bullet points rich in information that describe any design decisions, insights uncovered, errors and issues encountered from the chat history that would be useful for future reference. Things like: 'I need to bare in mind X' or 'Key points to consider are X' or 'As a result of X then Y'. Notes that will help me in the future keep on top of how things morphozises over time"
+
                             // Create the request payload
-                            let payload = 
+                            let payload =
                                 { Model = "claude-3-5-sonnet-20241022"
                                   MaxTokens = 1024
-                                  Messages = [| {role = "user"; content = content} |]
+                                  Messages = [| { role = "user"; content = content } |]
                                   System = systemPrompt
                                   Stream = false }
-                            
-                            let config = JsonConfig.create(jsonFieldNaming = Json.snakeCase)
+
+                            let config = JsonConfig.create (jsonFieldNaming = Json.snakeCase)
                             let payloadJson = Json.serializeEx config payload
                             let content = new StringContent(payloadJson, Encoding.UTF8, "application/json")
-                            
+
                             // Create request
                             let request = new HttpRequestMessage()
                             request.Method <- HttpMethod.Post
@@ -244,74 +223,80 @@ let rec chat (state: State) (llm: LLM) =
                             request.Content <- content
                             request.Headers.Add("x-api-key", apiKey)
                             request.Headers.Add("anthropic-version", "2023-06-01")
-                            
+
                             // Execute request
-                            let exec = async {
-                                try
-                                    // Print request payload for debugging
-                                    printfn "Debug - Request payload: %s" payloadJson
-                                    
-                                    use! response = client.SendAsync(request) |> Async.AwaitTask
-                                    
-                                    // Get response body even if status code indicates failure
-                                    let! responseBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
-                                    
-                                    printfn "Debug - Status code: %d %s" (int response.StatusCode) (response.StatusCode.ToString())
-                                    printfn "Debug - Raw response: %s" responseBody
-                                    
-                                    // Check status code after logging response
-                                    response.EnsureSuccessStatusCode() |> ignore
-                                    
-                                    // Parse the response
-                                    let deserializeOptions = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
-                                    let result = JsonSerializer.Deserialize<ClaudeResponse>(responseBody, deserializeOptions)
-                                    
-                                    return Ok result
-                                with ex ->
-                                    return Error ex
-                            }
-                            
+                            let exec =
+                                async {
+                                    try
+                                        // Print request payload for debugging
+                                        printfn "Debug - Request payload: %s" payloadJson
+
+                                        use! response = client.SendAsync(request) |> Async.AwaitTask
+
+                                        // Get response body even if status code indicates failure
+                                        let! responseBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
+
+                                        printfn
+                                            "Debug - Status code: %d %s"
+                                            (int response.StatusCode)
+                                            (response.StatusCode.ToString())
+
+                                        printfn "Debug - Raw response: %s" responseBody
+
+                                        // Check status code after logging response
+                                        response.EnsureSuccessStatusCode() |> ignore
+
+                                        // Parse the response
+                                        let deserializeOptions =
+                                            JsonSerializerOptions(PropertyNameCaseInsensitive = true)
+
+                                        let result =
+                                            JsonSerializer.Deserialize<ClaudeResponse>(responseBody, deserializeOptions)
+
+                                        return Ok result
+                                    with ex ->
+                                        return Error ex
+                                }
+
                             match exec |> await with
                             | Ok result ->
                                 try
-                                    let textContent = 
-                                        result.Content 
-                                        |> Array.tryFind (fun c -> c.Type = "text")
-                                    
+                                    let textContent = result.Content |> Array.tryFind (fun c -> c.Type = "text")
+
                                     match textContent with
                                     | Some content ->
                                         let summary = content.Text
                                         printfn "\nSummary of chat history:"
                                         printfn "%s" summary
-                                        
+
                                         // Append to CLAUDE.md file
                                         try
                                             let contentToWrite = sprintf "\n(%s)\n" summary
-                                            let claudeFilePath = Path.Combine(Directory.GetCurrentDirectory(), "CLAUDE.md")
-                                            
+
+                                            let claudeFilePath =
+                                                Path.Combine(Directory.GetCurrentDirectory(), "CLAUDE.md")
+
                                             // Check if file exists, create if not
                                             if not (File.Exists(claudeFilePath)) then
                                                 File.WriteAllText(claudeFilePath, "# Jarvis Chat Summaries\n")
-                                            
+
                                             // Append the content
                                             File.AppendAllText(claudeFilePath, contentToWrite)
                                             printfn "Summary appended to CLAUDE.md"
                                         with ex ->
                                             printfn "Error writing to file: %s" ex.Message
-                                    | None ->
-                                        printfn "No text content found in response."
+                                    | None -> printfn "No text content found in response."
                                 with ex ->
                                     printfn "Error parsing response: %s" ex.Message
-                            | Error ex ->
-                                printfn "API call failed: %s" ex.Message
-                            
+                            | Error ex -> printfn "API call failed: %s" ex.Message
+
                             state
                     with ex ->
                         printfn "Error generating summary: %s" ex.Message
                         state
                 | "/end" ->
                     { state with
-                        Message = "" |> ChatContent.Text |> Explicit |> Jarvis 
+                        Message = "" |> ChatContent.Text |> Explicit |> Jarvis
                         Conversation = withNewChat (You(Explicit response)) state.Conversation } //end
                 | str ->
                     //append text to accumulated message
@@ -346,44 +331,59 @@ let rec chat (state: State) (llm: LLM) =
                      Message = "" |> ChatContent.Text |> Explicit |> Jarvis } //request jarvis again after tool use done to generate outcome
              | Tool(None, None)
              | Tool(_, None)
-             | Tool(None, _) ->
-                 state)
+             | Tool(None, _) -> state)
             llm
     | Quit -> ()
 
-[<EntryPoint>]
 let main argv =
-    let isInternetAvailable () =
-        try
-            use ping = new System.Net.NetworkInformation.Ping()
-            let reply = ping.Send("8.8.8.8") // Ping Google DNS
-            reply.Status = IPStatus.Success
-        with _ ->
-            false
+    task {
+        let isInternetAvailable () =
+            try
+                use ping = new System.Net.NetworkInformation.Ping()
+                let reply = ping.Send("8.8.8.8") // Ping Google DNS
+                reply.Status = IPStatus.Success
+            with _ ->
+                false
 
-    let initially =
-        { Message = You(Explicit(ChatContent.Text ""))
-          Conversation = List.Empty }
+        let! mcpServers =
+            task {
+                let! config = MCP.readConfig $"{Directory.GetCurrentDirectory()}/mcp-servers.json"
 
-    match argv with
-    | [| llm_param |] ->
-        let llm =
-            match llm_param with
-            | "claude" -> Claude
-            | "ollama" -> Ollama
+                match config with
+                | Some serverList ->
+                    let! mcpClients = MCP.createClients serverList
+                    let! tools = MCP.listTools mcpClients
+                    return Some tools
+                | None -> return None
+
+            }
+
+        let initially =
+            { Message = You(Explicit(ChatContent.Text ""))
+              Conversation = List.Empty
+              McpServerTools =
+                mcpServers
+                |> Option.map (fun x -> x |> Array.map snd)
+                |> Option.defaultValue [||] }
+
+        match argv with
+        | [| dll; rest |] ->
+            match rest with
+            | "tools" ->
+                MCP.display mcpServers true
             | _ ->
-                // Fallback
+                ()
+        | _ ->
+            let llm =
                 match isInternetAvailable () with
                 | true -> Claude
                 | false -> Ollama // Ollama can be used offline
 
-        chat initially llm
-    | _ ->
-        let llm =
-            match isInternetAvailable () with
-            | true -> Claude
-            | false -> Ollama // Ollama can be used offline
+            MCP.display mcpServers false
+            chat initially llm
 
-        chat initially llm
+        return 0
+    }
 
-    0
+let argv = System.Environment.GetCommandLineArgs()
+main argv |> Async.AwaitTask |> Async.RunSynchronously |> ignore

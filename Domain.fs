@@ -4,6 +4,7 @@ open System
 open System.Text.Json
 open System.Text.Json.Serialization
 open System.IO
+open MCP
 
 type UserToolResponse = {
     ``type``: string
@@ -74,34 +75,29 @@ type ChatContent =
 type ChatMessage = { role: string; content: string }
 
 type ToolData = 
-    // | WriteNote of schema: string * ToolContentBlock
-    | RecordThinking of schema: string * ToolContentBlock
-    | RecordMistake of schema: string * ToolContentBlock
+    | WriteNote of schema: string * ToolContentBlock
+    | Think of schema: string * ToolContentBlock
     with
         static member init str tool =
             match str with
-            // | "write_note" -> Some (WriteNote ("", tool))
-            | "record_thinking" -> Some (RecordThinking ("", tool))
-            | "record_mistake" -> Some (RecordMistake ("", tool))
+            | "write_note" -> Some (WriteNote ("", tool))
+            | "think" -> Some (Think ("", tool))
             | _ -> None
 
         member this.Name =
             match this with
-            // | WriteNote _ -> "write-note"
-            | RecordThinking _ -> "record-thinking"
-            | RecordMistake _ -> "record-mistake"
+            | WriteNote _ -> "write_note"
+            | Think _ -> "think"
 
         member this.UpdateSchema partial =
             match this with
-            // | WriteNote (schema,id) -> WriteNote ((schema + partial), id)
-            | RecordThinking (schema,id) -> RecordThinking ((schema + partial), id)
-            | RecordMistake (schema,id) -> RecordMistake ((schema + partial), id)
+            | WriteNote (schema,id) -> WriteNote ((schema + partial), id)
+            | Think (schema,id) -> Think ((schema + partial), id)
 
         member this.Finalize () =
             match this with
-            // | WriteNote (schema, tool)
-            | RecordMistake (schema, tool)
-            | RecordThinking (schema, tool) ->
+            | WriteNote (schema, tool)
+            | Think (schema, tool) ->
                 {tool with input = JsonDocument.Parse(schema)}
 
 type Event =
@@ -159,6 +155,7 @@ type Conversation = Message list
 
 type State =
     { Message: Message
+      McpServerTools: ModelContextProtocol.Client.McpClientTool array array
       Conversation: Conversation }
 
 module Utils = 

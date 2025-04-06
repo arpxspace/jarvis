@@ -35,7 +35,10 @@ let serializedConvo convo =
     |> List.filter (fun msg -> not (String.IsNullOrEmpty msg.role))
     |> List.toArray
 
-let createPayload (convo: Conversation) (llm: LLM) =
+let createPayload state (llm: LLM) =
+    let convo = state.Conversation
+    let mcpTools = state.McpServerTools |> Array.collect id
+    // let tools = Array.concat [mcpTools; [|Claude.Tool.write_note|]]
 
     let contextInfo =
         let currDir = Directory.GetCurrentDirectory() + string Path.DirectorySeparatorChar
@@ -61,7 +64,7 @@ let createPayload (convo: Conversation) (llm: LLM) =
                     + contextInfo
                   stream = true
                   max_tokens = 1024
-                  tools = Some [||]}
+                  tools = Some mcpTools }
 
             Json.serialize p
 

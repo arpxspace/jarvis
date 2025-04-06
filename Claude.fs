@@ -146,7 +146,7 @@ type Payload =
       system: string
       stream: bool
       max_tokens: int
-      tools: Tool array option }
+      tools: ModelContextProtocol.Client.McpClientTool array option }
 
 let jsonOptions = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
 
