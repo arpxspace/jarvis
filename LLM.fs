@@ -64,9 +64,11 @@ let createPayload state (llm: LLM) =
                     + contextInfo
                   stream = true
                   max_tokens = 1024
-                  tools = Some mcpTools }
+                  tools = Some (mcpTools |> Array.map _.ProtocolTool)  }
 
-            Json.serialize p
+            JsonSerializer.Serialize p
+
+            //TODO: Left here (11:39am)
 
     // let doc = JsonDocument.Parse(payload)
     // let prettyOptions = JsonSerializerOptions(WriteIndented = true)
