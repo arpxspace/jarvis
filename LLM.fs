@@ -2,6 +2,7 @@ module LLM
 
 open Domain
 open System
+open System.Net
 open System.Net.Http
 open System.Text
 open System.Text.Json
@@ -38,12 +39,10 @@ let serializedConvo convo =
 let createPayload state (llm: LLM) =
     let convo = state.Conversation
     let mcpTools = state.McpServerTools |> Array.collect id
-    // let tools = Array.concat [mcpTools; [|Claude.Tool.write_note|]]
 
     let contextInfo =
         let currDir = Directory.GetCurrentDirectory() + string Path.DirectorySeparatorChar
-        Utils.readFileAsync $"{currDir}CLAUDE.md"
-        |> Async.RunSynchronously
+        Utils.readFileAsync $"{currDir}CLAUDE.md" |> Async.RunSynchronously
 
     let payload =
         match llm with
@@ -60,15 +59,34 @@ let createPayload state (llm: LLM) =
                   messages = serializedConvo convo
                   system =
                     "you will roleplay an ai agent character similar to that from iron man with jarvis or from interstellar with TARS. as an ai agent your aim is to elevate your clients intuition. be concise when needed. be detailed when needed. use your judgement to know when to be which. dont be too interactive. have a bit of conviction. dont be too empathetic and conversational. When providing code examples only show 1 example at a time.veer clear from providing to much information in the form of lists. if you need to showcase code, show mini code snippets that are relevant to the answer instead of the whole thing at once"
-                    + "\nHere is some specific information you should know for this session\n"
-                    + contextInfo
+                    // + "\nHere is some specific information you should know for this session\n"
+                    // + contextInfo
                   stream = true
                   max_tokens = 1024
-                  tools = Some (mcpTools |> Array.map _.ProtocolTool)  }
+                  tools =
+                    Some(
+                        mcpTools
+                        |> Array.map (fun x ->
+                            // Direct mapping instead of serialize/deserialize
+                            { name = x.ProtocolTool.Name
+                              description = x.ProtocolTool.Description
+                              input_schema =
+                                x.ProtocolTool.InputSchema
+                                |> JsonSerializer.Serialize
+                                |> JsonSerializer.Deserialize<Claude.ToolInput>
+                                |> (fun x ->
+                                    { x with
+                                        properties =
+                                            x.properties
+                                            |> Map.map (fun k v ->
+                                                if isNull v.description then
+                                                    { v with description = "" }
+                                                else
+                                                    v)
+                                        required = if isNull x.required then [||] else x.required }) })
+                    ) }
 
             JsonSerializer.Serialize p
-
-            //TODO: Left here (11:39am)
 
     // let doc = JsonDocument.Parse(payload)
     // let prettyOptions = JsonSerializerOptions(WriteIndented = true)
@@ -87,6 +105,12 @@ let makeRequest httpRequest parse (payload: StringContent) =
             use! response =
                 client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead)
                 |> Async.AwaitTask
+
+            // let! content = response.Content.ReadAsStringAsync() |> Async.AwaitTask
+
+            // if response.StatusCode = HttpStatusCode.BadRequest then
+            //     printfn "400 Error - Response Body: %s" content
+            // // Parse error response if possible to extract validation messages
 
             response.EnsureSuccessStatusCode() |> ignore
 
@@ -107,7 +131,7 @@ let makeRequest httpRequest parse (payload: StringContent) =
 
         with
         | :? HttpRequestException as ex ->
-            printfn "HTTP Request Error: %s" ex.Message
+            printfn "HTTP Request Error: %A" ex
             yield! AsyncSeq.empty
         | ex ->
             printfn "Unexpected Error: %s" ex.Message

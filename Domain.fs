@@ -121,7 +121,7 @@ type Event =
 [<RequireQualifiedAccess>]
 type ParseContext = {
     Response: ChatContent
-    Tool: ToolData option
+    Tool: ToolContentBlock option * string
 }
 
 type ParseStatus = 

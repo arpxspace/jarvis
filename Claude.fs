@@ -9,6 +9,7 @@ open System.Threading
 open FSharp.Control
 open System.IO
 open System.Reflection
+open System.Text.Json.Serialization
 
 let key = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
 
@@ -146,7 +147,7 @@ type Payload =
       system: string
       stream: bool
       max_tokens: int
-      tools: ModelContextProtocol.Protocol.Types.Tool array option }
+      tools: Tool array option }
 
 let jsonOptions = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
 
