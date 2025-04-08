@@ -19,7 +19,6 @@ let readConfig filepath =
             let! content = File.ReadAllTextAsync(filepath)
             return content |> Json.deserialize<JarvisMcpServers> |> Some
         with ex ->
-            printfn $"error: {ex}"
             return None
     }
 
@@ -126,5 +125,5 @@ let display (tools: (string * McpClientTool array) array option) detailed =
         AnsiConsole.MarkupLine("[red]⚠️ Error loading MCP tools ⚠️[/]")
 
         AnsiConsole.MarkupLine(
-            "[yellow]Try checking your MCP configuration or ensure servers are running correctly.[/]"
+            "[yellow]Try ensuring your MCP configuration (mcp-servers.json) exists or is set up correctly.[/]"
         )
