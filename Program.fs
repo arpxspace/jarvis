@@ -7,6 +7,7 @@ open System.Text
 open System.Text.Json
 open Domain
 open System.Diagnostics
+open System.Collections.Generic
 open System.IO
 open System.Threading.Tasks
 open Spectre
@@ -115,17 +116,18 @@ let ask llm state : ChatContent =
 
                                 return
                                     { acc with
-                                        Tool = ToolData.init tool.name tool }
+                                        Tool = Some tool,"" }
                             | ConstructingToolSchema partial ->
-                                match acc.Tool with
-                                | Some tool ->
-                                    do! stdin.WriteAsync(content.Serialize (Some tool.Name) None) |> Async.AwaitTask
-                                    do! stdin.FlushAsync() |> Async.AwaitTask
+                                let toolName = fst acc.Tool |> Option.map (fun x -> x.name) |> Option.defaultValue "Unknown"
 
-                                    return
-                                        { acc with
-                                            Tool = Some(tool.UpdateSchema partial) }
-                                | None -> return acc
+                                do! stdin.WriteAsync(content.Serialize (Some toolName) None) |> Async.AwaitTask
+                                do! stdin.FlushAsync() |> Async.AwaitTask
+
+                                let toolUpdated = (fst acc.Tool, snd acc.Tool + partial)
+
+                                return
+                                    { acc with
+                                        Tool = toolUpdated }
                             | CallTool ->
                                 let latestTextOutput =
                                     acc.Response
@@ -133,28 +135,50 @@ let ask llm state : ChatContent =
                                         | Text t -> t
                                         | _ -> ""
 
-                                match acc.Tool with
-                                | Some(Think(schema, tool))
-                                | Some(WriteNote(schema, tool)) ->
-                                    let input = JsonSerializer.Deserialize<Tools.WriteNoteSchema>(schema, jsonOptions)
-                                    Tools.writeNote input.note input.filename
+                                let (_tool, schema) = acc.Tool
 
-                                    let toolResponse: UserToolResponse =
-                                        { ``type`` = "tool_result"
-                                          tool_use_id = tool.id
-                                          content = Some $"The file has been written with filename: {input.filename}" }
+                                match _tool with
+                                | Some tool ->
+                                    let client =
+                                        state.McpServerTools
+                                        |> Array.collect (fun x ->
+                                            x |> Array.filter (fun y -> y.Name = tool.name)
+                                        )
+                                        |> Array.tryHead
 
-                                    return
-                                        { acc with
-                                            Tool = None
-                                            Response =
-                                                JarvisToolResponse.Create schema latestTextOutput tool
-                                                |> (fun x -> (Some x, Some toolResponse))
-                                                |> ChatContent.Tool }
-                                | None -> return acc
+                                    match client with
+                                    | Some x ->
+                                        let schemaProcessed = if String.IsNullOrEmpty schema then "{}" else schema
+                                        let schemaDict = schemaProcessed |> JsonSerializer.Deserialize<Dictionary<string, obj>> 
+
+                                        let! result =
+                                            x.InvokeAsync(schemaDict)
+                                            |> Async.AwaitTask
+
+                                        let output = result |> JsonSerializer.Serialize |> JsonSerializer.Deserialize<ModelContextProtocol.Protocol.Types.CallToolResponse>
+
+                                        let outcome = (output.Content.Item 0).Text
+
+                                        let toolResponseUser = {
+                                            ``type`` = tool.``type``
+                                            tool_use_id = tool.id
+                                            content = Some outcome
+                                        }
+
+                                        return
+                                            { acc with
+                                                Tool = None,""
+                                                Response =
+                                                    JarvisToolResponse.Create schema latestTextOutput tool
+                                                    |> (fun x -> (Some x, Some toolResponseUser))
+                                                    |> ChatContent.Tool }
+                                    | None ->
+                                        return acc
+                                | None ->
+                                    return acc
                         })
                     { Response = ChatContent.Text ""
-                      Tool = None }
+                      Tool = None,"" }
 
             stdin.Close()
             proc.WaitForExit()
@@ -323,8 +347,8 @@ let rec chat (state: State) (llm: LLM) =
 
                  let newConvo =
                      state.Conversation
-                     |> withNewChat (Jarvis(Implicit(ChatContent.Tool(Some jarvis_tr, Some user_tr))))
-                     |> withNewChat (You(Implicit(ChatContent.Tool(Some jarvis_tr, Some user_tr))))
+                     |> withNewChat (Jarvis(Implicit(ChatContent.Tool(Some jarvis_tr, Some user_tr)))) //tool invoked
+                     |> withNewChat (You(Implicit(ChatContent.Tool(Some jarvis_tr, Some user_tr)))) //tool answer
 
                  { state with
                      Conversation = newConvo

@@ -16,7 +16,7 @@ A minimal TUI that started off as being a prettified version of the existing oll
   - uses tool use from the `filesystem` MCP server
 
 **TODO**
-- [ ] MCP integration, starting with the `filesystem` server
+- [x] MCP integration, starting with the `filesystem` server
 - [ ] Ability for jarvis to depict whether to respond normally or perform socratic method if the user has prior sufficient knowledge
 - [ ] Ability for jarvis to use a CoT model (`R1`) in cases where it is being presented with a complex problem
 - [ ] RAG from vector databases
