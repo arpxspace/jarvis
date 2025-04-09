@@ -116,7 +116,7 @@ type Event =
             | ConstructingToolSchema _ ->
                 {| Text = text |> Option.defaultValue ""; Tool = tool |> Option.defaultValue ""; Event = "constructing-tool"|} |> JsonSerializer.Serialize
             | CallTool ->
-                {| Text = ""; Tool = ""; Event = "block-finished"|} |> JsonSerializer.Serialize
+                {| Text = text |> Option.defaultValue ""; Tool = ""; Event = "block-finished"|} |> JsonSerializer.Serialize
 
 [<RequireQualifiedAccess>]
 type ParseContext = {

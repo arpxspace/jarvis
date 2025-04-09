@@ -9,7 +9,7 @@ open System.Collections.Generic
 open Spectre
 open Spectre.Console
 
-type Server = { command: string; args: string list }
+type Server = { command: string; args: string list; env: Map<string, string> option}
 
 type JarvisMcpServers = Map<string, Server>
 
@@ -19,6 +19,7 @@ let readConfig filepath =
             let! content = File.ReadAllTextAsync(filepath)
             return content |> Json.deserialize<JarvisMcpServers> |> Some
         with ex ->
+            printfn "Error: %s" ex.Message
             return None
     }
 
@@ -33,7 +34,16 @@ let createClients (config: JarvisMcpServers) =
                 TransportType = TransportTypes.StdIo,
                 TransportOptions =
                     Dictionary<string, string>(
-                        dict [ ("command", server.command); ("arguments", server.args |> String.concat " ") ]
+                        dict [
+                            ("command", server.command)
+                            ("arguments", (server.args |> String.concat " "))
+                            match server.env with
+                            | Some envs ->
+                                for env in envs do
+                                    ($"env:{env.Key}", env.Value)
+                            | None -> 
+                                ()
+                        ]
                     )
             )
 
