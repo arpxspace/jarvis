@@ -9,7 +9,12 @@ open System.Collections.Generic
 open Spectre
 open Spectre.Console
 
-type Server = { command: string; args: string list; env: Map<string, string> option}
+type Server =
+    { disabled: bool option
+      exclude: string array option
+      command: string
+      args: string list
+      env: Map<string, string> option }
 
 type JarvisMcpServers = Map<string, Server>
 
@@ -26,46 +31,49 @@ let readConfig filepath =
 let createClients (config: JarvisMcpServers) =
     config
     |> Map.toArray
+    |> Array.filter (fun (_, server) -> not (server.disabled |> Option.defaultValue false))
     |> Array.map (fun (serverName, server) ->
-        let clientTransport = 
+        let clientTransport =
             StdioClientTransport(
                 StdioClientTransportOptions(
                     Name = serverName,
                     Command = server.command,
                     Arguments = (server.args |> List.toArray),
-                    EnvironmentVariables = 
+                    EnvironmentVariables =
                         Dictionary<string, string>(
-                            dict [
-                                match server.env with
-                                | Some envs ->
-                                    for env in envs do
-                                        ($"env:{env.Key}", env.Value)
-                                | None -> 
-                                    ()
-                            ]
+                            dict
+                                [ match server.env with
+                                  | Some envs ->
+                                      for env in envs do
+                                          (env.Key, env.Value)
+                                  | None -> () ]
                         )
                 )
             )
 
         task {
             let! client = McpClientFactory.CreateAsync(clientTransport)
-            return (serverName, client)
+            return (serverName, server.exclude |> Option.defaultValue [||], client)
         })
     |> Task.WhenAll
 
-let listTools (mcpClients: (string * IMcpClient) array) =
-    let (names, clients) = mcpClients |> Array.unzip
+let listTools (mcpClients: (string * string array * IMcpClient) array) =
+    let (names, excluded, clients) = mcpClients |> Array.unzip3
 
     task {
         let! elements = task { return! clients |> Array.map (_.ListToolsAsync()) |> Task.WhenAll }
 
-        return elements |> Array.map Array.ofSeq |> Array.zip names 
+        return
+            elements
+            |> Array.map Array.ofSeq
+            |> Array.mapi (fun i tools -> tools |> Array.filter (fun y -> excluded[i] |> Array.contains y.Name |> not ))
+            |> Array.zip names
     }
 
 let display (tools: (string * McpClientTool array) array option) detailed =
     match tools with
     | Some toolArrays ->
-        let (names, serverTools) = toolArrays |> Array.unzip 
+        let (names, serverTools) = toolArrays |> Array.unzip
 
         let totalTools = serverTools |> Array.sumBy Array.length
 
@@ -88,8 +96,7 @@ let display (tools: (string * McpClientTool array) array option) detailed =
                 grid.AddColumn() |> ignore
 
             // Create server headers row
-            let headers =
-                Array.init serverCount (fun i -> $"[yellow]{Array.get names i}[/]")
+            let headers = Array.init serverCount (fun i -> $"[yellow]{Array.get names i}[/]")
 
             grid.AddRow(headers) |> ignore
 
