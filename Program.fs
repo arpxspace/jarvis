@@ -16,6 +16,7 @@ open FSharp.Json
 open Anthropic
 open ModelContextProtocol.Client
 open ModelContextProtocol.Protocol.Transport
+open Microsoft.Extensions.AI
 
 // Define types for API request and response
 type ClaudeContentBlock = { Type: string; Text: string }
@@ -150,9 +151,10 @@ let ask llm state : ChatContent =
                                     | Some x ->
                                         let schemaProcessed = if String.IsNullOrEmpty schema then "{}" else schema
                                         let schemaDict = schemaProcessed |> JsonSerializer.Deserialize<Dictionary<string, obj>> 
+                                        let functionArgs = AIFunctionArguments(schemaDict)
 
                                         let! result =
-                                            x.InvokeAsync(schemaDict)
+                                            x.InvokeAsync(functionArgs).AsTask()
                                             |> Async.AwaitTask
 
                                         let output = result |> JsonSerializer.Serialize |> JsonSerializer.Deserialize<ModelContextProtocol.Protocol.Types.CallToolResponse>
@@ -164,6 +166,9 @@ let ask llm state : ChatContent =
                                             tool_use_id = tool.id
                                             content = Some outcome
                                         }
+
+                                        do! stdin.WriteAsync(content.Serialize (Some $"> [{tool.name}] called w/ ```${schemaProcessed}```") None) |> Async.AwaitTask
+                                        do! stdin.FlushAsync() |> Async.AwaitTask
 
                                         return
                                             { acc with
@@ -208,116 +213,116 @@ let rec chat (state: State) (llm: LLM) =
                 match input with
                 | "/exit"
                 | "/quit" -> { state with Message = Quit }
-                | "/retain" ->
-                    printfn "Generating summary of chat history..."
+                // | "/retain" ->
+                //     printfn "Generating summary of chat history..."
 
-                    try
-                        let content = state.Conversation |> Json.serialize
+                //     try
+                //         let content = state.Conversation |> Json.serialize
 
-                        if String.IsNullOrEmpty content then
-                            printfn "No conversation history to summarize."
-                            state
-                        else
+                //         if String.IsNullOrEmpty content then
+                //             printfn "No conversation history to summarize."
+                //             state
+                //         else
 
-                            // Create direct API request to Anthropic
-                            let client = new HttpClient()
+                //             // Create direct API request to Anthropic
+                //             let client = new HttpClient()
 
-                            // Prepare the payload
-                            let apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
+                //             // Prepare the payload
+                //             let apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
 
-                            let systemPrompt =
-                                "Write 5 concise bullet points rich in information that describe any design decisions, insights uncovered, errors and issues encountered from the chat history that would be useful for future reference. Things like: 'I need to bare in mind X' or 'Key points to consider are X' or 'As a result of X then Y'. Notes that will help me in the future keep on top of how things morphozises over time"
+                //             let systemPrompt =
+                //                 "Write 5 concise bullet points rich in information that describe any design decisions, insights uncovered, errors and issues encountered from the chat history that would be useful for future reference. Things like: 'I need to bare in mind X' or 'Key points to consider are X' or 'As a result of X then Y'. Notes that will help me in the future keep on top of how things morphozises over time"
 
-                            // Create the request payload
-                            let payload =
-                                { Model = "claude-3-5-sonnet-20241022"
-                                  MaxTokens = 1024
-                                  Messages = [| { role = "user"; content = content } |]
-                                  System = systemPrompt
-                                  Stream = false }
+                //             // Create the request payload
+                //             let payload =
+                //                 { Model = "claude-3-5-sonnet-20241022"
+                //                   MaxTokens = 1024
+                //                   Messages = [| { role = "user"; content = content } |]
+                //                   System = systemPrompt
+                //                   Stream = false }
 
-                            let config = JsonConfig.create (jsonFieldNaming = Json.snakeCase)
-                            let payloadJson = Json.serializeEx config payload
-                            let content = new StringContent(payloadJson, Encoding.UTF8, "application/json")
+                //             let config = JsonConfig.create (jsonFieldNaming = Json.snakeCase)
+                //             let payloadJson = Json.serializeEx config payload
+                //             let content = new StringContent(payloadJson, Encoding.UTF8, "application/json")
 
-                            // Create request
-                            let request = new HttpRequestMessage()
-                            request.Method <- HttpMethod.Post
-                            request.RequestUri <- Uri("https://api.anthropic.com/v1/messages")
-                            request.Content <- content
-                            request.Headers.Add("x-api-key", apiKey)
-                            request.Headers.Add("anthropic-version", "2023-06-01")
+                //             // Create request
+                //             let request = new HttpRequestMessage()
+                //             request.Method <- HttpMethod.Post
+                //             request.RequestUri <- Uri("https://api.anthropic.com/v1/messages")
+                //             request.Content <- content
+                //             request.Headers.Add("x-api-key", apiKey)
+                //             request.Headers.Add("anthropic-version", "2023-06-01")
 
-                            // Execute request
-                            let exec =
-                                async {
-                                    try
-                                        // Print request payload for debugging
-                                        printfn "Debug - Request payload: %s" payloadJson
+                //             // Execute request
+                //             let exec =
+                //                 async {
+                //                     try
+                //                         // Print request payload for debugging
+                //                         printfn "Debug - Request payload: %s" payloadJson
 
-                                        use! response = client.SendAsync(request) |> Async.AwaitTask
+                //                         use! response = client.SendAsync(request) |> Async.AwaitTask
 
-                                        // Get response body even if status code indicates failure
-                                        let! responseBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
+                //                         // Get response body even if status code indicates failure
+                //                         let! responseBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
 
-                                        printfn
-                                            "Debug - Status code: %d %s"
-                                            (int response.StatusCode)
-                                            (response.StatusCode.ToString())
+                //                         printfn
+                //                             "Debug - Status code: %d %s"
+                //                             (int response.StatusCode)
+                //                             (response.StatusCode.ToString())
 
-                                        printfn "Debug - Raw response: %s" responseBody
+                //                         printfn "Debug - Raw response: %s" responseBody
 
-                                        // Check status code after logging response
-                                        response.EnsureSuccessStatusCode() |> ignore
+                //                         // Check status code after logging response
+                //                         response.EnsureSuccessStatusCode() |> ignore
 
-                                        // Parse the response
-                                        let deserializeOptions =
-                                            JsonSerializerOptions(PropertyNameCaseInsensitive = true)
+                //                         // Parse the response
+                //                         let deserializeOptions =
+                //                             JsonSerializerOptions(PropertyNameCaseInsensitive = true)
 
-                                        let result =
-                                            JsonSerializer.Deserialize<ClaudeResponse>(responseBody, deserializeOptions)
+                //                         let result =
+                //                             JsonSerializer.Deserialize<ClaudeResponse>(responseBody, deserializeOptions)
 
-                                        return Ok result
-                                    with ex ->
-                                        return Error ex
-                                }
+                //                         return Ok result
+                //                     with ex ->
+                //                         return Error ex
+                //                 }
 
-                            match exec |> await with
-                            | Ok result ->
-                                try
-                                    let textContent = result.Content |> Array.tryFind (fun c -> c.Type = "text")
+                //             match exec |> await with
+                //             | Ok result ->
+                //                 try
+                //                     let textContent = result.Content |> Array.tryFind (fun c -> c.Type = "text")
 
-                                    match textContent with
-                                    | Some content ->
-                                        let summary = content.Text
-                                        printfn "\nSummary of chat history:"
-                                        printfn "%s" summary
+                //                     match textContent with
+                //                     | Some content ->
+                //                         let summary = content.Text
+                //                         printfn "\nSummary of chat history:"
+                //                         printfn "%s" summary
 
-                                        // Append to CLAUDE.md file
-                                        try
-                                            let contentToWrite = sprintf "\n(%s)\n" summary
+                //                         // Append to CLAUDE.md file
+                //                         try
+                //                             let contentToWrite = sprintf "\n(%s)\n" summary
 
-                                            let claudeFilePath =
-                                                Path.Combine(Directory.GetCurrentDirectory(), "CLAUDE.md")
+                //                             let claudeFilePath =
+                //                                 Path.Combine(Directory.GetCurrentDirectory(), "CLAUDE.md")
 
-                                            // Check if file exists, create if not
-                                            if not (File.Exists(claudeFilePath)) then
-                                                File.WriteAllText(claudeFilePath, "# Jarvis Chat Summaries\n")
+                //                             // Check if file exists, create if not
+                //                             if not (File.Exists(claudeFilePath)) then
+                //                                 File.WriteAllText(claudeFilePath, "# Jarvis Chat Summaries\n")
 
-                                            // Append the content
-                                            File.AppendAllText(claudeFilePath, contentToWrite)
-                                            printfn "Summary appended to CLAUDE.md"
-                                        with ex ->
-                                            printfn "Error writing to file: %s" ex.Message
-                                    | None -> printfn "No text content found in response."
-                                with ex ->
-                                    printfn "Error parsing response: %s" ex.Message
-                            | Error ex -> printfn "API call failed: %s" ex.Message
+                //                             // Append the content
+                //                             File.AppendAllText(claudeFilePath, contentToWrite)
+                //                             printfn "Summary appended to CLAUDE.md"
+                //                         with ex ->
+                //                             printfn "Error writing to file: %s" ex.Message
+                //                     | None -> printfn "No text content found in response."
+                //                 with ex ->
+                //                     printfn "Error parsing response: %s" ex.Message
+                //             | Error ex -> printfn "API call failed: %s" ex.Message
 
-                            state
-                    with ex ->
-                        printfn "Error generating summary: %s" ex.Message
-                        state
+                //             state
+                //     with ex ->
+                //         printfn "Error generating summary: %s" ex.Message
+                //         state
                 | "/end" ->
                     { state with
                         Message = "" |> ChatContent.Text |> Explicit |> Jarvis
