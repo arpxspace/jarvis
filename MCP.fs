@@ -27,28 +27,28 @@ let createClients (config: JarvisMcpServers) =
     config
     |> Map.toArray
     |> Array.map (fun (serverName, server) ->
-        let serverConfig =
-            ModelContextProtocol.McpServerConfig(
-                Id = serverName,
-                Name = serverName,
-                TransportType = TransportTypes.StdIo,
-                TransportOptions =
-                    Dictionary<string, string>(
-                        dict [
-                            ("command", server.command)
-                            ("arguments", (server.args |> String.concat " "))
-                            match server.env with
-                            | Some envs ->
-                                for env in envs do
-                                    ($"env:{env.Key}", env.Value)
-                            | None -> 
-                                ()
-                        ]
-                    )
+        let clientTransport = 
+            StdioClientTransport(
+                StdioClientTransportOptions(
+                    Name = serverName,
+                    Command = server.command,
+                    Arguments = (server.args |> List.toArray),
+                    EnvironmentVariables = 
+                        Dictionary<string, string>(
+                            dict [
+                                match server.env with
+                                | Some envs ->
+                                    for env in envs do
+                                        ($"env:{env.Key}", env.Value)
+                                | None -> 
+                                    ()
+                            ]
+                        )
+                )
             )
 
         task {
-            let! client = McpClientFactory.CreateAsync(serverConfig)
+            let! client = McpClientFactory.CreateAsync(clientTransport)
             return (serverName, client)
         })
     |> Task.WhenAll
