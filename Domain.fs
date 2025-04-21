@@ -58,7 +58,7 @@ type ChatContent =
 
         member this.SerializeJarvis () =
             match this with
-            | Tool (jarvis, user) ->
+            | Tool (jarvis, _) ->
                 jarvis
                 |> Option.map (fun x -> x.Serialize()) //need to inner serialize for jarvis res
                 |> JsonSerializer.Serialize  
@@ -67,7 +67,7 @@ type ChatContent =
 
         member this.SerializeUser () =
             match this with
-            | Tool (jarvis, user) ->
+            | Tool (_, user) ->
                 user |> JsonSerializer.Serialize  
             | _ ->
                 ""
@@ -112,11 +112,13 @@ type Event =
             | ReceivedResponse res -> 
                 {| Text = res; Tool = ""; Event = "received-text"|} |> JsonSerializer.Serialize  
             | RequiresTool {name = tool; id = id} ->
-                {| Text = text |> Option.defaultValue ""; Tool = tool; Event = "requires-tool" |} |> JsonSerializer.Serialize
-            | ConstructingToolSchema _ ->
-                {| Text = text |> Option.defaultValue ""; Tool = tool |> Option.defaultValue ""; Event = "constructing-tool"|} |> JsonSerializer.Serialize
+                // Don't include text in the requires-tool event - show only that a tool is being called
+                {| Text = ""; Tool = tool; Event = "requires-tool" |} |> JsonSerializer.Serialize
+            | ConstructingToolSchema partial ->
+                // Don't send the JSON schema as Text - just display that tool construction is in progress
+                {| Text = ""; Tool = tool |> Option.defaultValue ""; Event = "constructing-tool"|} |> JsonSerializer.Serialize
             | CallTool ->
-                {| Text = text |> Option.defaultValue ""; Tool = ""; Event = "block-finished"|} |> JsonSerializer.Serialize
+                {| Text = text |> Option.defaultValue ""; Tool = tool; Event = "block-finished"|} |> JsonSerializer.Serialize
 
 [<RequireQualifiedAccess>]
 type ParseContext = {

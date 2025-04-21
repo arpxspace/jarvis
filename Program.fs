@@ -115,20 +115,19 @@ let ask llm state : ChatContent =
                                 do! stdin.WriteAsync(content.Serialize (Some tool.name) None) |> Async.AwaitTask
                                 do! stdin.FlushAsync() |> Async.AwaitTask
 
-                                return
-                                    { acc with
-                                        Tool = Some tool,"" }
+                                return { acc with Tool = Some tool, "" }
                             | ConstructingToolSchema partial ->
-                                let toolName = fst acc.Tool |> Option.map (fun x -> x.name) |> Option.defaultValue "Unknown"
+                                let toolName =
+                                    fst acc.Tool |> Option.map (fun x -> x.name) |> Option.defaultValue "Unknown"
 
                                 do! stdin.WriteAsync(content.Serialize (Some toolName) None) |> Async.AwaitTask
                                 do! stdin.FlushAsync() |> Async.AwaitTask
 
-                                let toolUpdated = (fst acc.Tool, snd acc.Tool + partial)
+                                // Safely append schema parts - trim to avoid malformed JSON
+                                let cleanPartial = partial.Trim()
+                                let toolUpdated = (fst acc.Tool, snd acc.Tool + cleanPartial)
 
-                                return
-                                    { acc with
-                                        Tool = toolUpdated }
+                                return { acc with Tool = toolUpdated }
                             | CallTool ->
                                 let latestTextOutput =
                                     acc.Response
@@ -142,48 +141,88 @@ let ask llm state : ChatContent =
                                 | Some tool ->
                                     let client =
                                         state.McpServerTools
-                                        |> Array.collect (fun x ->
-                                            x |> Array.filter (fun y -> y.Name = tool.name)
-                                        )
+                                        |> Array.collect (fun x -> x |> Array.filter (fun y -> y.Name = tool.name))
                                         |> Array.tryHead
 
                                     match client with
                                     | Some x ->
                                         let schemaProcessed = if String.IsNullOrEmpty schema then "{}" else schema
-                                        let schemaDict = schemaProcessed |> JsonSerializer.Deserialize<Dictionary<string, obj>> 
-                                        let functionArgs = AIFunctionArguments(schemaDict)
 
-                                        let! result =
-                                            x.InvokeAsync(functionArgs).AsTask()
+                                        // Try to correctly parse the schema JSON
+                                        let! outcome =
+                                            async {
+                                                try
+                                                    let schemaDict =
+                                                        schemaProcessed
+                                                        |> JsonSerializer.Deserialize<Dictionary<string, obj>>
+
+                                                    let functionArgs = AIFunctionArguments(schemaDict)
+
+                                                    let! result =
+                                                        x.InvokeAsync(functionArgs).AsTask() |> Async.AwaitTask
+
+                                                    // Direct access to response content without double serialization
+                                                    let output = result
+
+                                                    // Extract just the text content safely
+                                                    let outcome =
+                                                        try
+                                                            let output =
+                                                                result
+                                                                |> JsonSerializer.Serialize
+                                                                |> JsonSerializer.Deserialize<
+                                                                    ModelContextProtocol.Protocol.Types.CallToolResponse
+                                                                    >
+
+                                                            Some (output.Content.Item 0).Text
+                                                        with _ ->
+                                                            // Fallback if content structure is unexpected
+                                                            printfn "Error processing tool response"
+                                                            None
+
+                                                    return outcome
+                                                with ex ->
+                                                    // Handle schema parsing errors
+                                                    printfn "Error parsing tool schema: %s" ex.Message
+                                                    return None
+                                            }
+
+                                        let toolResponseUser =
+                                            { ``type`` = tool.``type``
+                                              tool_use_id = tool.id
+                                              content = outcome }
+
+                                        let printToolCall =
+                                            Event.ReceivedResponse $"\n> [{tool.name}] called w/ ```{schemaProcessed}```"
+                                        do!
+                                            stdin.WriteAsync(
+                                                printToolCall.Serialize
+                                                    None
+                                                    None
+                                            )
+                                            |> Async.AwaitTask
+                                        do!
+                                            stdin.WriteAsync(
+                                                content.Serialize
+                                                    (Some tool.name)
+                                                    None
+                                            )
                                             |> Async.AwaitTask
 
-                                        let output = result |> JsonSerializer.Serialize |> JsonSerializer.Deserialize<ModelContextProtocol.Protocol.Types.CallToolResponse>
-
-                                        let outcome = (output.Content.Item 0).Text
-
-                                        let toolResponseUser = {
-                                            ``type`` = tool.``type``
-                                            tool_use_id = tool.id
-                                            content = Some outcome
-                                        }
-
-                                        do! stdin.WriteAsync(content.Serialize (Some $"> [{tool.name}] called w/ ```${schemaProcessed}```") None) |> Async.AwaitTask
                                         do! stdin.FlushAsync() |> Async.AwaitTask
 
                                         return
                                             { acc with
-                                                Tool = None,""
+                                                Tool = None, ""
                                                 Response =
                                                     JarvisToolResponse.Create schema latestTextOutput tool
                                                     |> (fun x -> (Some x, Some toolResponseUser))
                                                     |> ChatContent.Tool }
-                                    | None ->
-                                        return acc
-                                | None ->
-                                    return acc
+                                    | None -> return acc
+                                | None -> return acc
                         })
                     { Response = ChatContent.Text ""
-                      Tool = None,"" }
+                      Tool = None, "" }
 
             stdin.Close()
             proc.WaitForExit()
@@ -341,26 +380,24 @@ let rec chat (state: State) (llm: LLM) =
         //ask for jarvis input -> ollama rest api call
         let response = state |> ask llm
 
+        // printfn "%A" state.Conversation
+
         chat
             (match response with
              | Text t ->
-                 // printfn "%A" state.Conversation
                  { state with
                      Conversation = withNewChat (t |> ChatContent.Text |> Explicit |> Jarvis) state.Conversation
                      Message = You(Explicit(ChatContent.Text "")) }
-             | Tool(Some jarvis_tr, Some user_tr) ->
+             | Tool(jarvis_tr, user_tr) ->
 
                  let newConvo =
                      state.Conversation
-                     |> withNewChat (Jarvis(Implicit(ChatContent.Tool(Some jarvis_tr, Some user_tr)))) //tool invoked
-                     |> withNewChat (You(Implicit(ChatContent.Tool(Some jarvis_tr, Some user_tr)))) //tool answer
+                     |> withNewChat (Jarvis(Implicit(ChatContent.Tool(jarvis_tr, user_tr)))) //tool invoked
+                     |> withNewChat (You(Implicit(ChatContent.Tool(jarvis_tr, user_tr)))) //tool answer
 
                  { state with
                      Conversation = newConvo
-                     Message = "" |> ChatContent.Text |> Explicit |> Jarvis } //request jarvis again after tool use done to generate outcome
-             | Tool(None, None)
-             | Tool(_, None)
-             | Tool(None, _) -> state)
+                     Message = "" |> ChatContent.Text |> Explicit |> Jarvis }) //request jarvis again after tool use done to generate outcome
             llm
     | Quit -> ()
 
@@ -395,21 +432,19 @@ let main argv =
                 |> Option.map (fun x -> x |> Array.map snd)
                 |> Option.defaultValue [||] }
 
-        match argv with
-        | [| dll; rest |] ->
+        match argv |> Array.toList with
+        | dll :: rest ->
             match rest with
-            | "tools" ->
-                MCP.display mcpServers true
+            | [ "tools" ] -> MCP.display mcpServers true
             | _ ->
-                ()
-        | _ ->
-            let llm =
-                match isInternetAvailable () with
-                | true -> Claude
-                | false -> Ollama // Ollama can be used offline
+                let llm =
+                    match isInternetAvailable () with
+                    | true -> Claude
+                    | false -> Ollama // Ollama can be used offline
 
-            MCP.display mcpServers false
-            chat initially llm
+                MCP.display mcpServers false
+                chat initially llm
+        | _ -> ()
 
         return 0
     }
