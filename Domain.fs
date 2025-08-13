@@ -29,10 +29,10 @@ type JarvisToolResponse =
         static member Create (schema: string) (text: string) (tool: ToolContentBlock) =
             let responseText = {
                 ``type`` = "text"
-                text = text 
+                text = text
             }
 
-            (responseText, tool) |> JarvisToolResponse 
+            (responseText, tool) |> JarvisToolResponse
         member this.Value =
             match this with
             | JarvisToolResponse value -> value
@@ -61,20 +61,20 @@ type ChatContent =
             | Tool (jarvis, _) ->
                 jarvis
                 |> Option.map (fun x -> x.Serialize()) //need to inner serialize for jarvis res
-                |> JsonSerializer.Serialize  
+                |> JsonSerializer.Serialize
             | _ ->
                 ""
 
         member this.SerializeUser () =
             match this with
             | Tool (_, user) ->
-                user |> JsonSerializer.Serialize  
+                user |> JsonSerializer.Serialize
             | _ ->
                 ""
 
 type ChatMessage = { role: string; content: string }
 
-type ToolData = 
+type ToolData =
     | WriteNote of schema: string * ToolContentBlock
     | Think of schema: string * ToolContentBlock
     with
@@ -102,15 +102,15 @@ type ToolData =
 
 type Event =
     | ReceivedResponse of string
-    | RequiresTool of ToolContentBlock 
+    | RequiresTool of ToolContentBlock
     | ConstructingToolSchema of partial_json: string
     | CallTool
     with
         /// This is for sending it to 'prettified-output' go program for rendering
         member this.Serialize tool text =
             match this with
-            | ReceivedResponse res -> 
-                {| Text = res; Tool = ""; Event = "received-text"|} |> JsonSerializer.Serialize  
+            | ReceivedResponse res ->
+                {| Text = res; Tool = ""; Event = "received-text"|} |> JsonSerializer.Serialize
             | RequiresTool {name = tool; id = id} ->
                 // Don't include text in the requires-tool event - show only that a tool is being called
                 {| Text = ""; Tool = tool; Event = "requires-tool" |} |> JsonSerializer.Serialize
@@ -126,7 +126,7 @@ type ParseContext = {
     Tool: ToolContentBlock option * string
 }
 
-type ParseStatus = 
+type ParseStatus =
     | Data of Event
     | Ended of AsyncSeq<string>
 
@@ -141,10 +141,10 @@ with
         | LLaMA -> "jarvis"
 
 type LLM =
-    | Claude
-    | Ollama
+    | Claude of string
+    | Ollama of string
 
-type MessageMode = 
+type MessageMode =
     | Implicit of ChatContent //tool use, mcp
     | Explicit of ChatContent //text generation
 
@@ -157,10 +157,11 @@ type Conversation = Message list
 
 type State =
     { Message: Message
+      WithLogging: bool
       McpServerTools: ModelContextProtocol.Client.McpClientTool array array
       Conversation: Conversation }
 
-module Utils = 
+module Utils =
     let readFileAsync (path: string) = async {
         try
             let! content = File.ReadAllTextAsync(path) |> Async.AwaitTask

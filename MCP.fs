@@ -24,8 +24,8 @@ let readConfig filepath =
             let! content = File.ReadAllTextAsync(filepath)
             return content |> Json.deserialize<JarvisMcpServers> |> Some
         with ex ->
-            //read global config 
-            try 
+            //read global config
+            try
                 let path = $"{System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile)}/.jarvis/mcp-servers.json"
                 if not (File.Exists(path)) then
                     do! File.WriteAllTextAsync(path, "{}")
@@ -53,15 +53,15 @@ let createClients (config: JarvisMcpServers) =
                                 [ match server.env with
                                   | Some envs ->
                                       for env in envs do
-                                          (env.Key, env.Value)
+                                          env.Key, env.Value
                                   | None -> () ]
                         )
                 )
             )
 
         task {
-            let! client = McpClientFactory.CreateAsync(clientTransport)
-            return (serverName, server.exclude |> Option.defaultValue [||], client)
+            let! client = McpClientFactory.CreateAsync clientTransport
+            return serverName, server.exclude |> Option.defaultValue [||], client
         })
     |> Task.WhenAll
 

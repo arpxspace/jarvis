@@ -1,4 +1,4 @@
-﻿open System
+open System
 open System.Threading
 open FSharp.Control
 open System.Net.Http
@@ -63,21 +63,21 @@ let withNewChat (msg: Domain.Message) (convo: Conversation) =
 let ask llm state : ChatContent =
     let (payload, httpRequest) =
         match llm with
-        | Ollama ->
+        | Ollama _ ->
             let model = "jarvis"
-            let payload = LLM.createPayload state Ollama
+            let payload = LLM.createPayload state (Ollama model)
             let request = Ollama.httpRequest payload
             (payload, request)
-        | Claude ->
-            let model = "claude-3-5-sonnet-20241022"
-            let payload = LLM.createPayload state Claude
+        | Claude _ ->
+            let model = "claude-sonnet-4-20250514"
+            let payload = LLM.createPayload state (Claude model)
             let request = Claude.httpRequest payload
             (payload, request)
 
     let parseHandler =
         match llm with
-        | Ollama -> Ollama.parse
-        | Claude -> Claude.parse
+        | Ollama _ -> Ollama.parse
+        | Claude _ -> Claude.parse
 
     let jsonOptions = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
 
@@ -427,6 +427,7 @@ let main argv =
         let initially =
             { Message = You(Explicit(ChatContent.Text ""))
               Conversation = List.Empty
+              WithLogging = false
               McpServerTools =
                 mcpServers
                 |> Option.map (fun x -> x |> Array.map snd)
@@ -436,11 +437,19 @@ let main argv =
         | dll :: rest ->
             match rest with
             | [ "tools" ] -> MCP.display mcpServers true
+            | [ "-l"] ->
+                let llm =
+                    match isInternetAvailable () with
+                    | true -> Claude ""
+                    | false -> Ollama "" // Ollama can be used offline
+
+                MCP.display mcpServers false
+                chat {initially with WithLogging = true } llm
             | _ ->
                 let llm =
                     match isInternetAvailable () with
-                    | true -> Claude
-                    | false -> Ollama // Ollama can be used offline
+                    | true -> Claude ""
+                    | false -> Ollama "" // Ollama can be used offline
 
                 MCP.display mcpServers false
                 chat initially llm
