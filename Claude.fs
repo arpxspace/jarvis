@@ -179,9 +179,9 @@ let parse (line: string) =
             let start = JsonSerializer.Deserialize<ContentBlockStart>(data, jsonOptions)
 
             // printfn "start %A" start
-            let event = 
+            let event =
                 match start.content_block with
-                | ContentBlock.Tool tool -> 
+                | ContentBlock.Tool tool ->
                     RequiresTool tool
                 | ContentBlock.Text data ->
                     ReceivedResponse ""

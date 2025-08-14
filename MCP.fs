@@ -66,7 +66,7 @@ let createClients (config: JarvisMcpServers) =
     |> Task.WhenAll
 
 let listTools (mcpClients: (string * string array * IMcpClient) array) =
-    let (names, excluded, clients) = mcpClients |> Array.unzip3
+    let names, excluded, clients = mcpClients |> Array.unzip3
 
     task {
         let! elements = task { return! clients |> Array.map (_.ListToolsAsync()) |> Task.WhenAll }
